@@ -3,8 +3,8 @@
 -- Loads each player's saved progress when they join, keeps it in memory while they play,
 -- and saves it on a timer, when they leave, and when the server shuts down.
 -- Bolts are only ever changed here, on the server. The client just displays them.
--- Saved: Bolts, which gadget sits on each lab bench with the Bolts piled up on it, and how many
--- extra benches the player has unlocked.
+-- Saved: Bolts, which gadget sits on each lab bench with the Bolts piled up on it, how many
+-- extra benches the player has unlocked, and their gate lock level.
 -- Container: ServerScriptService/Services
 
 ----- Services -----
@@ -30,6 +30,7 @@ export type PlayerData = {
 	Bolts: number,
 	Benches: { [string]: BenchEntry }, -- keyed by BenchIndex as text ("1".."8"), as DataStores need text keys
 	ExtraBenches: number, -- benches unlocked beyond the first 4 (0 to 4)
+	GateLevel: number, -- gate lock upgrades bought (0 to 3)
 }
 
 type Session = {
@@ -47,10 +48,11 @@ local DataService = {}
 ----- Private Functions -----
 local function defaultData(): PlayerData
 	return {
-		DataVersion = 3,
+		DataVersion = 4,
 		Bolts = STARTING_BOLTS,
 		Benches = {},
 		ExtraBenches = 0,
+		GateLevel = 0,
 	}
 end
 
@@ -63,6 +65,9 @@ local function reconcile(saved: any): PlayerData
 		end
 		if typeof(saved.ExtraBenches) == "number" then
 			data.ExtraBenches = math.clamp(math.floor(saved.ExtraBenches), 0, 4)
+		end
+		if typeof(saved.GateLevel) == "number" then
+			data.GateLevel = math.clamp(math.floor(saved.GateLevel), 0, 3)
 		end
 		-- Version 1 saves had no benches; anything malformed is skipped rather than trusted
 		if typeof(saved.Benches) == "table" then
