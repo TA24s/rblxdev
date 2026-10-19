@@ -10,3 +10,4 @@ plain `.luau` a ModuleScript (the naming Rojo uses, so the folder can be synced 
 |---|---|
 | 2. Lab assignment | `ServerScriptService/Init.server.luau`, `ServerScriptService/Services/LabService.luau` |
 | 3. Bolts and saving | `ServerScriptService/Services/DataService.luau`, `StarterPlayer/StarterPlayerScripts/HudController.client.luau` |
+| 4. Gadgets | `ReplicatedStorage/Shared/Config/Rarities.luau`, `ReplicatedStorage/Shared/Config/Gadgets.luau`, `StarterPlayer/StarterPlayerScripts/GadgetAnimator.client.luau`. The 8 models in `ServerStorage/GadgetModels` were built once with `tools/build-gadget-models.luau` (run in the Studio command bar). |
