@@ -1,7 +1,7 @@
 --!strict
 -- GadgetAnimator
 -- Plays the little idle animations on every gadget in the world (spinning spoons, popping toast,
--- slapping hands). Runs only on each player's own screen, so the server never spends effort on it.
+-- slapping hands) and on the animated map decorations (DNA towers, atom electrons, Tesla sparks). Runs only on each player's own screen, so the server never spends effort on it.
 -- What each part does comes from attributes set on the model (see tools/build-gadget-models.luau),
 -- so new gadgets animate without changing this script.
 -- Container: StarterPlayer/StarterPlayerScripts
@@ -11,7 +11,7 @@ local CollectionService = game:GetService("CollectionService")
 local RunService = game:GetService("RunService")
 
 ----- Constants -----
-local GADGET_TAG = "Gadget"
+local ANIMATED_TAGS = { "Gadget", "AnimatedDecor" }
 local AXES: { [string]: Vector3 } = { X = Vector3.xAxis, Y = Vector3.yAxis, Z = Vector3.zAxis }
 
 ----- Types -----
@@ -22,7 +22,7 @@ type AnimatedPart = {
 	axis: Vector3,
 	speed: number,
 	amplitude: number,
-	pivot: Vector3,
+	pivot: Vector3, -- Spin/Swing turn around this point (part-local); zero = the part's centre
 }
 
 type Entry = {
@@ -73,7 +73,7 @@ end
 -- Where a part should be at time t, relative to its resting position
 local function animatedOffset(a: AnimatedPart, t: number): CFrame
 	if a.kind == "Spin" then
-		return CFrame.fromAxisAngle(a.axis, math.rad(a.speed * t))
+		return CFrame.new(a.pivot) * CFrame.fromAxisAngle(a.axis, math.rad(a.speed * t)) * CFrame.new(-a.pivot)
 	elseif a.kind == "Bob" then
 		return CFrame.new(0, (math.sin(t * a.speed * 2 * math.pi) + 1) * 0.5 * a.amplitude, 0)
 	elseif a.kind == "Swing" then
@@ -108,10 +108,12 @@ local function step()
 end
 
 ----- Initialization -----
-CollectionService:GetInstanceAddedSignal(GADGET_TAG):Connect(register)
-CollectionService:GetInstanceRemovedSignal(GADGET_TAG):Connect(unregister)
-for _, instance in CollectionService:GetTagged(GADGET_TAG) do
-	register(instance)
+for _, tag in ANIMATED_TAGS do
+	CollectionService:GetInstanceAddedSignal(tag):Connect(register)
+	CollectionService:GetInstanceRemovedSignal(tag):Connect(unregister)
+	for _, instance in CollectionService:GetTagged(tag) do
+		register(instance)
+	end
 end
 
 RunService.RenderStepped:Connect(step)
