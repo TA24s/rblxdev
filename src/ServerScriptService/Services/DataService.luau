@@ -3,7 +3,8 @@
 -- Loads each player's saved progress when they join, keeps it in memory while they play,
 -- and saves it on a timer, when they leave, and when the server shuts down.
 -- Bolts are only ever changed here, on the server. The client just displays them.
--- Saved: Bolts, and which gadget sits on each lab bench with the Bolts piled up on it.
+-- Saved: Bolts, which gadget sits on each lab bench with the Bolts piled up on it, and how many
+-- extra benches the player has unlocked.
 -- Container: ServerScriptService/Services
 
 ----- Services -----
@@ -27,7 +28,8 @@ export type BenchEntry = {
 export type PlayerData = {
 	DataVersion: number,
 	Bolts: number,
-	Benches: { [string]: BenchEntry }, -- keyed by BenchIndex as text ("1".."4"), as DataStores need text keys
+	Benches: { [string]: BenchEntry }, -- keyed by BenchIndex as text ("1".."8"), as DataStores need text keys
+	ExtraBenches: number, -- benches unlocked beyond the first 4 (0 to 4)
 }
 
 type Session = {
@@ -45,9 +47,10 @@ local DataService = {}
 ----- Private Functions -----
 local function defaultData(): PlayerData
 	return {
-		DataVersion = 2,
+		DataVersion = 3,
 		Bolts = STARTING_BOLTS,
 		Benches = {},
+		ExtraBenches = 0,
 	}
 end
 
@@ -57,6 +60,9 @@ local function reconcile(saved: any): PlayerData
 	if typeof(saved) == "table" then
 		if typeof(saved.Bolts) == "number" then
 			data.Bolts = math.max(0, math.floor(saved.Bolts))
+		end
+		if typeof(saved.ExtraBenches) == "number" then
+			data.ExtraBenches = math.clamp(math.floor(saved.ExtraBenches), 0, 4)
 		end
 		-- Version 1 saves had no benches; anything malformed is skipped rather than trusted
 		if typeof(saved.Benches) == "table" then
