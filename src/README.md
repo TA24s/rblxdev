@@ -9,3 +9,4 @@ plain `.luau` a ModuleScript (the naming Rojo uses, so the folder can be synced 
 | Stage | Scripts |
 |---|---|
 | 2. Lab assignment | `ServerScriptService/Init.server.luau`, `ServerScriptService/Services/LabService.luau` |
+| 3. Bolts and saving | `ServerScriptService/Services/DataService.luau`, `StarterPlayer/StarterPlayerScripts/HudController.client.luau` |
