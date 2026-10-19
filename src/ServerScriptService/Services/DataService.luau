@@ -3,6 +3,7 @@
 -- Loads each player's saved progress when they join, keeps it in memory while they play,
 -- and saves it on a timer, when they leave, and when the server shuts down.
 -- Bolts are only ever changed here, on the server. The client just displays them.
+-- Saved: Bolts, and which gadget sits on each lab bench with the Bolts piled up on it.
 -- Container: ServerScriptService/Services
 
 ----- Services -----
@@ -18,9 +19,15 @@ local MAX_RETRIES = 3
 local RETRY_DELAY = 2 -- seconds, multiplied by the attempt number
 
 ----- Types -----
+export type BenchEntry = {
+	GadgetId: string,
+	Stored: number, -- Bolts earned on this bench and not collected yet
+}
+
 export type PlayerData = {
 	DataVersion: number,
 	Bolts: number,
+	Benches: { [string]: BenchEntry }, -- keyed by BenchIndex as text ("1".."4"), as DataStores need text keys
 }
 
 type Session = {
@@ -31,14 +38,16 @@ type Session = {
 ----- Variables -----
 local playerStore: DataStore? = nil
 local sessions: { [Player]: Session } = {}
+local activeSaves = 0 -- saves still talking to the DataStore; shutdown waits for these
 
 local DataService = {}
 
 ----- Private Functions -----
 local function defaultData(): PlayerData
 	return {
-		DataVersion = 1,
+		DataVersion = 2,
 		Bolts = STARTING_BOLTS,
+		Benches = {},
 	}
 end
 
@@ -49,8 +58,28 @@ local function reconcile(saved: any): PlayerData
 		if typeof(saved.Bolts) == "number" then
 			data.Bolts = math.max(0, math.floor(saved.Bolts))
 		end
+		-- Version 1 saves had no benches; anything malformed is skipped rather than trusted
+		if typeof(saved.Benches) == "table" then
+			for key, entry in saved.Benches do
+				if typeof(key) == "string" and typeof(entry) == "table" and typeof(entry.GadgetId) == "string" then
+					local stored = if typeof(entry.Stored) == "number" then math.max(0, math.floor(entry.Stored)) else 0
+					data.Benches[key] = { GadgetId = entry.GadgetId, Stored = stored }
+				end
+			end
+		end
 	end
 	return data
+end
+
+local function deepCopy<T>(value: T): T
+	if typeof(value) ~= "table" then
+		return value
+	end
+	local copy = {}
+	for k, v in value :: any do
+		copy[k] = deepCopy(v)
+	end
+	return copy :: any
 end
 
 local function keyFor(player: Player): string
@@ -105,7 +134,8 @@ local function save(player: Player)
 	if not (session and session.canSave and store) then
 		return
 	end
-	local snapshot = table.clone(session.data)
+	local snapshot = deepCopy(session.data)
+	activeSaves += 1
 	for attempt = 1, MAX_RETRIES do
 		local ok, err = pcall(function()
 			store:UpdateAsync(keyFor(player), function(_old: any)
@@ -113,13 +143,14 @@ local function save(player: Player)
 			end)
 		end)
 		if ok then
-			return
+			break
 		end
 		warn(`[DataService] Save attempt {attempt} for {player.Name} failed: {err}`)
 		if attempt < MAX_RETRIES then
 			task.wait(RETRY_DELAY * attempt)
 		end
 	end
+	activeSaves -= 1
 end
 
 local function onPlayerAdded(player: Player)
@@ -153,6 +184,13 @@ local function onPlayerRemoving(player: Player)
 end
 
 ----- Public Functions -----
+-- The player's live data, for other server services to read and change (e.g. BenchService).
+-- Nil until it has loaded, and after the player leaves.
+function DataService.GetData(player: Player): PlayerData?
+	local session = sessions[player]
+	return session and session.data
+end
+
 function DataService.GetBolts(player: Player): number?
 	local session = sessions[player]
 	return session and session.data.Bolts
@@ -209,19 +247,15 @@ function DataService.Init()
 		end
 	end)
 
-	-- Save everyone when the server shuts down
+	-- When the server shuts down, save anyone still loaded and wait for every save to finish,
+	-- including ones started by players leaving (the server would otherwise close mid-save)
 	game:BindToClose(function()
-		local pending = 0
-		for _, player in Players:GetPlayers() do
-			pending += 1
-			task.spawn(function()
-				save(player)
-				pending -= 1
-			end)
+		for player in sessions do
+			task.spawn(save, player)
 		end
 		local deadline = os.clock() + 25
-		while pending > 0 and os.clock() < deadline do
-			task.wait(0.5)
+		while activeSaves > 0 and os.clock() < deadline do
+			task.wait(0.25)
 		end
 	end)
 end

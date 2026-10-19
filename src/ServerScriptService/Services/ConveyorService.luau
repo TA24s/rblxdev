@@ -1,9 +1,8 @@
 --!strict
 -- ConveyorService
 -- Drops a random gadget onto the conveyor every few seconds (rarer gadgets less often) and
--- carries it once round the belt. A player holds E on a gadget to buy it with Bolts, and it
--- goes onto the first empty bench in their lab.
--- Bench gadgets don't earn or save yet: Stage 6 adds income and saving.
+-- carries it once round the belt. A player holds E on a gadget to buy it with Bolts, and
+-- BenchService puts it on the first empty bench in their lab.
 -- Container: ServerScriptService/Services
 
 ----- Services -----
@@ -15,6 +14,7 @@ local ServerStorage = game:GetService("ServerStorage")
 local Config = ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Config")
 local Gadgets = require(Config:WaitForChild("Gadgets"))
 local Rarities = require(Config:WaitForChild("Rarities"))
+local BenchService = require(script.Parent:WaitForChild("BenchService"))
 local DataService = require(script.Parent:WaitForChild("DataService"))
 local LabService = require(script.Parent:WaitForChild("LabService"))
 local NotifyService = require(script.Parent:WaitForChild("NotifyService"))
@@ -44,7 +44,6 @@ type BeltItem = {
 
 ----- Variables -----
 local modelsFolder = ServerStorage:WaitForChild("GadgetModels")
-local labsFolder = workspace:WaitForChild("Map"):WaitForChild("Labs")
 local beltFolder: Folder
 local items: { BeltItem } = {}
 local segmentLengths: { number } = {}
@@ -118,41 +117,6 @@ local function createLabel(gadget: Gadgets.Gadget, parent: BasePart)
 	gui.Parent = parent
 end
 
-local function getPlacedFolder(lab: Model): Folder
-	local folder = lab:FindFirstChild("PlacedGadgets")
-	if folder and folder:IsA("Folder") then
-		return folder
-	end
-	local newFolder = Instance.new("Folder")
-	newFolder.Name = "PlacedGadgets"
-	newFolder.Parent = lab
-	return newFolder
-end
-
--- First bench (by BenchIndex) with no gadget on it
-local function findFreeBench(lab: Model): BasePart?
-	local benches = lab:FindFirstChild("Benches")
-	if not benches then
-		return nil
-	end
-	local taken: { [number]: boolean } = {}
-	for _, placed in getPlacedFolder(lab):GetChildren() do
-		local index = placed:GetAttribute("BenchIndex")
-		if typeof(index) == "number" then
-			taken[index] = true
-		end
-	end
-	local best: BasePart? = nil
-	local bestIndex = math.huge
-	for _, bench in benches:GetChildren() do
-		local index = bench:GetAttribute("BenchIndex")
-		if bench:IsA("BasePart") and typeof(index) == "number" and not taken[index] and index < bestIndex then
-			best, bestIndex = bench, index
-		end
-	end
-	return best
-end
-
 local function removeFromBelt(item: BeltItem)
 	local index = table.find(items, item)
 	if index then
@@ -165,12 +129,15 @@ local function onBuy(item: BeltItem, player: Player)
 		return
 	end
 	local gadget = item.gadget
-	local lab = LabService.GetLab(player)
-	if not lab then
+	if not LabService.GetLab(player) then
 		NotifyService.Send(player, "You need a lab to keep gadgets in.")
 		return
 	end
-	local bench = findFreeBench(lab)
+	if not BenchService.IsReady(player) then
+		NotifyService.Send(player, "Your lab is still loading. Try again in a moment.")
+		return
+	end
+	local bench = BenchService.FindFreeBench(player)
 	if not bench then
 		NotifyService.Send(player, "Your lab is full! Every bench has a gadget on it.")
 		return
@@ -180,18 +147,15 @@ local function onBuy(item: BeltItem, player: Player)
 		NotifyService.Send(player, `You need ⚙ {gadget.Cost} to buy the {gadget.DisplayName}.`)
 		return
 	end
+	if not BenchService.PlaceGadget(player, bench, gadget.Id) then
+		DataService.AddBolts(player, gadget.Cost) -- give the Bolts back
+		NotifyService.Send(player, "Something went wrong placing that gadget. Your Bolts were refunded.")
+		return
+	end
 
 	item.sold = true
 	removeFromBelt(item)
-	local model = item.model
-	local prompt = model:FindFirstChildWhichIsA("ProximityPrompt", true)
-	if prompt then
-		prompt:Destroy()
-	end
-	model:SetAttribute("OwnerUserId", player.UserId)
-	model:SetAttribute("BenchIndex", bench:GetAttribute("BenchIndex"))
-	model:PivotTo(bench.CFrame * CFrame.new(0, bench.Size.Y / 2 + 0.1, 0))
-	model.Parent = getPlacedFolder(lab)
+	item.model:Destroy()
 	NotifyService.Send(player, `You bought the {gadget.DisplayName}! It's on a bench in your lab.`)
 end
 
@@ -242,15 +206,6 @@ local function moveItems(deltaTime: number)
 	end
 end
 
--- Gadgets bought this session aren't saved yet (Stage 6), so clear them when a lab is freed
-local function watchLab(lab: Instance)
-	lab:GetAttributeChangedSignal("OwnerUserId"):Connect(function()
-		if lab:GetAttribute("OwnerUserId") == 0 and lab:IsA("Model") then
-			getPlacedFolder(lab):ClearAllChildren()
-		end
-	end)
-end
-
 ----- Public Functions -----
 function ConveyorService.Init()
 	for i = 1, #PATH - 1 do
@@ -261,10 +216,6 @@ function ConveyorService.Init()
 	beltFolder = Instance.new("Folder")
 	beltFolder.Name = "ConveyorGadgets"
 	beltFolder.Parent = workspace
-
-	for _, lab in labsFolder:GetChildren() do
-		watchLab(lab)
-	end
 
 	RunService.Heartbeat:Connect(moveItems)
 	task.spawn(function()
