@@ -72,6 +72,10 @@ end
 ----- Initialization -----
 local label, scale = buildHud()
 
+-- Saved data can take a few seconds to load, so wait for DataService to finish first
+while not player:GetAttribute("DataLoaded") do
+	player:GetAttributeChangedSignal("DataLoaded"):Wait()
+end
 local leaderstats = player:WaitForChild("leaderstats")
 local bolts = leaderstats:WaitForChild("Bolts") :: IntValue
 
