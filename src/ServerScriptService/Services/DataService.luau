@@ -1,19 +1,27 @@
 --!strict
 -- DataService
 -- Loads each player's saved progress when they join, keeps it in memory while they play,
--- and saves it on a timer, when they leave, and when the server shuts down.
+-- and saves it. Saving is done by ProfileStore (ServerStorage.ProfileStore, by loleris), which
+-- autosaves, saves when the player leaves or the server shuts down, and session-locks each save
+-- so two servers can never load the same player at once (that would let stolen gadgets be copied).
 -- Bolts are only ever changed here, on the server. The client just displays them.
 -- Saved: Bolts, which gadget sits on each lab bench with the Bolts piled up on it, how many
 -- extra benches the player has unlocked, and their gate lock level.
+-- Saves made before ProfileStore (DataStore "PlayerData_v1") are copied in once, on first join,
+-- and the old store is never written again, so it stays as a backup.
 -- Container: ServerScriptService/Services
 
 ----- Services -----
 local DataStoreService = game:GetService("DataStoreService")
 local Players = game:GetService("Players")
-local RunService = game:GetService("RunService")
+local ServerStorage = game:GetService("ServerStorage")
+
+----- Modules -----
+local ProfileStore = require(ServerStorage:WaitForChild("ProfileStore") :: ModuleScript)
 
 ----- Constants -----
-local STORE_NAME = "PlayerData_v1"
+local STORE_NAME = "PlayerProfiles_v1"
+local LEGACY_STORE_NAME = "PlayerData_v1" -- the old saves, read once and never written
 local STARTING_BOLTS = 100
 local AUTOSAVE_INTERVAL = 120 -- seconds
 local MAX_RETRIES = 3
@@ -31,31 +39,29 @@ export type PlayerData = {
 	Benches: { [string]: BenchEntry }, -- keyed by BenchIndex as text ("1".."8"), as DataStores need text keys
 	ExtraBenches: number, -- benches unlocked beyond the first 4 (0 to 4)
 	GateLevel: number, -- gate lock upgrades bought (0 to 3)
-}
-
-type Session = {
-	data: PlayerData,
-	canSave: boolean, -- false when we couldn't load real data, so we never overwrite a save
+	LegacyChecked: boolean, -- true once the old PlayerData_v1 save has been copied in (or there was none)
 }
 
 ----- Variables -----
-local playerStore: DataStore? = nil
-local sessions: { [Player]: Session } = {}
-local activeSaves = 0 -- saves still talking to the DataStore; shutdown waits for these
-
-local DataService = {}
-
------ Private Functions -----
+-- What a brand-new player starts with (also ProfileStore's template)
 local function defaultData(): PlayerData
 	return {
-		DataVersion = 4,
+		DataVersion = 5,
 		Bolts = STARTING_BOLTS,
 		Benches = {},
 		ExtraBenches = 0,
 		GateLevel = 0,
+		LegacyChecked = false,
 	}
 end
 
+local playerStore = ProfileStore.New(STORE_NAME, defaultData())
+type Profile = typeof(assert(playerStore:StartSessionAsync("")))
+local profiles: { [Player]: Profile } = {}
+
+local DataService = {}
+
+----- Private Functions -----
 -- Fills in any fields added since this save was made, so old saves keep working
 local function reconcile(saved: any): PlayerData
 	local data = defaultData()
@@ -82,15 +88,14 @@ local function reconcile(saved: any): PlayerData
 	return data
 end
 
-local function deepCopy<T>(value: T): T
-	if typeof(value) ~= "table" then
-		return value
+-- Puts `source`'s fields into `target`, keeping `target` the same table
+local function replaceContents(target: { [any]: any }, source: { [any]: any })
+	for key in target do
+		target[key] = nil
 	end
-	local copy = {}
-	for k, v in value :: any do
-		copy[k] = deepCopy(v)
+	for key, value in source do
+		target[key] = value
 	end
-	return copy :: any
 end
 
 local function keyFor(player: Player): string
@@ -116,22 +121,19 @@ local function createLeaderstats(player: Player, bolts: number)
 	leaderstats.Parent = player
 end
 
--- Returns (true, savedValueOrNil) on success, (false, errorMessage) after every retry fails
-local function loadWithRetries(player: Player): (boolean, any)
-	local store = playerStore
-	if not store then
-		return false, "DataStore unavailable"
-	end
+-- Reads the player's pre-ProfileStore save. Returns (true, savedValueOrNil) on success,
+-- (false, errorMessage) after every retry fails.
+local function loadLegacy(player: Player): (boolean, any)
 	local lastError: any = nil
 	for attempt = 1, MAX_RETRIES do
 		local ok, result = pcall(function()
-			return store:GetAsync(keyFor(player))
+			return DataStoreService:GetDataStore(LEGACY_STORE_NAME):GetAsync(keyFor(player))
 		end)
 		if ok then
 			return true, result
 		end
 		lastError = result
-		warn(`[DataService] Load attempt {attempt} for {player.Name} failed: {result}`)
+		warn(`[DataService] Old-save read {attempt} for {player.Name} failed: {result}`)
 		if attempt < MAX_RETRIES and player.Parent == Players then
 			task.wait(RETRY_DELAY * attempt)
 		end
@@ -139,136 +141,117 @@ local function loadWithRetries(player: Player): (boolean, any)
 	return false, lastError
 end
 
-local function save(player: Player)
-	local session = sessions[player]
-	local store = playerStore
-	if not (session and session.canSave and store) then
-		return
-	end
-	local snapshot = deepCopy(session.data)
-	activeSaves += 1
-	for attempt = 1, MAX_RETRIES do
-		local ok, err = pcall(function()
-			store:UpdateAsync(keyFor(player), function(_old: any)
-				return snapshot
-			end)
-		end)
-		if ok then
-			break
-		end
-		warn(`[DataService] Save attempt {attempt} for {player.Name} failed: {err}`)
-		if attempt < MAX_RETRIES then
-			task.wait(RETRY_DELAY * attempt)
-		end
-	end
-	activeSaves -= 1
-end
-
 local function onPlayerAdded(player: Player)
-	local ok, saved = loadWithRetries(player)
-	if player.Parent ~= Players then
-		return -- left while loading
+	local profile = playerStore:StartSessionAsync(keyFor(player), {
+		Cancel = function()
+			return player.Parent ~= Players
+		end,
+	})
+	if profile == nil then
+		if player.Parent == Players then
+			player:Kick("Your progress couldn't be loaded. Please rejoin in a moment.")
+		end
+		return
 	end
+	local data = profile.Data :: PlayerData
 
-	local session: Session
-	if ok then
-		session = { data = reconcile(saved), canSave = true }
-	elseif RunService:IsStudio() then
-		-- Usually means Studio access to API services is off. Play on with fresh data,
-		-- but never save it, so a real save can't be overwritten.
-		warn("[DataService] Saving is OFF for this test: turn on Studio access to API services to test saving.")
-		session = { data = defaultData(), canSave = false }
-	else
-		-- Never start a live player on default data: saving later would wipe their real progress
-		player:Kick("Your progress couldn't be loaded. Please rejoin in a moment.")
+	-- First join since the switch to ProfileStore: copy the old save in
+	if data.LegacyChecked ~= true then
+		local ok, legacy = loadLegacy(player)
+		if not ok then
+			-- Don't mark it checked, so the copy is tried again next time
+			profile:EndSession()
+			if player.Parent == Players then
+				player:Kick("Your progress couldn't be loaded. Please rejoin in a moment.")
+			end
+			return
+		end
+		if legacy ~= nil then
+			replaceContents(data, reconcile(legacy))
+			print(`[DataService] Copied {player.Name}'s old save into ProfileStore`)
+		end
+		data.LegacyChecked = true
+	end
+	-- Clean up anything malformed, the same way old saves are checked
+	local checked = reconcile(data)
+	checked.LegacyChecked = true
+	replaceContents(data, checked)
+
+	profile:AddUserId(player.UserId)
+	profile.OnSessionEnd:Connect(function()
+		profiles[player] = nil
+		if player.Parent == Players then
+			player:Kick("Your game was opened on another server. Please rejoin.")
+		end
+	end)
+	if player.Parent ~= Players then
+		profile:EndSession() -- left while loading
 		return
 	end
 
-	sessions[player] = session
-	createLeaderstats(player, session.data.Bolts)
+	profiles[player] = profile
+	createLeaderstats(player, data.Bolts)
 	player:SetAttribute("DataLoaded", true)
+	if ProfileStore.DataStoreState ~= "Access" then
+		warn("[DataService] Saving is OFF for this test: turn on Studio access to API services to test saving.")
+	end
 end
 
 local function onPlayerRemoving(player: Player)
-	save(player)
-	sessions[player] = nil
+	local profile = profiles[player]
+	profiles[player] = nil
+	if profile then
+		profile:EndSession() -- saves one last time and releases the session lock
+	end
 end
 
 ----- Public Functions -----
 -- The player's live data, for other server services to read and change (e.g. BenchService).
 -- Nil until it has loaded, and after the player leaves.
 function DataService.GetData(player: Player): PlayerData?
-	local session = sessions[player]
-	return session and session.data
+	local profile = profiles[player]
+	return if profile then profile.Data :: PlayerData else nil
 end
 
 function DataService.GetBolts(player: Player): number?
-	local session = sessions[player]
-	return session and session.data.Bolts
+	local data = DataService.GetData(player)
+	return data and data.Bolts
 end
 
 -- Adds Bolts (amount must be a positive whole number). Returns true if it worked.
 function DataService.AddBolts(player: Player, amount: number): boolean
-	local session = sessions[player]
-	if not session or amount <= 0 or amount ~= math.floor(amount) then
+	local data = DataService.GetData(player)
+	if not data or amount <= 0 or amount ~= math.floor(amount) then
 		return false
 	end
-	session.data.Bolts += amount
-	updateLeaderstats(player, session.data.Bolts)
+	data.Bolts += amount
+	updateLeaderstats(player, data.Bolts)
 	return true
 end
 
 -- Spends Bolts only if the player can afford it. Returns true if the Bolts were taken.
 function DataService.SpendBolts(player: Player, amount: number): boolean
-	local session = sessions[player]
-	if not session or amount <= 0 or amount ~= math.floor(amount) then
+	local data = DataService.GetData(player)
+	if not data or amount <= 0 or amount ~= math.floor(amount) then
 		return false
 	end
-	if session.data.Bolts < amount then
+	if data.Bolts < amount then
 		return false
 	end
-	session.data.Bolts -= amount
-	updateLeaderstats(player, session.data.Bolts)
+	data.Bolts -= amount
+	updateLeaderstats(player, data.Bolts)
 	return true
 end
 
 function DataService.Init()
-	local ok, storeOrError = pcall(function()
-		return DataStoreService:GetDataStore(STORE_NAME)
-	end)
-	if ok then
-		playerStore = storeOrError
-	else
-		warn(`[DataService] Couldn't open the DataStore: {storeOrError}`)
-	end
-
+	-- ProfileStore autosaves every 300s by default; save more often so a crash loses less
+	ProfileStore.SetConstant("AUTO_SAVE_PERIOD", AUTOSAVE_INTERVAL)
+	-- ProfileStore saves everyone and waits when the server shuts down, so there's no BindToClose here
 	Players.PlayerAdded:Connect(onPlayerAdded)
 	Players.PlayerRemoving:Connect(onPlayerRemoving)
 	for _, player in Players:GetPlayers() do
 		task.spawn(onPlayerAdded, player)
 	end
-
-	-- Autosave so a crash never loses more than a couple of minutes
-	task.spawn(function()
-		while true do
-			task.wait(AUTOSAVE_INTERVAL)
-			for _, player in Players:GetPlayers() do
-				task.spawn(save, player)
-			end
-		end
-	end)
-
-	-- When the server shuts down, save anyone still loaded and wait for every save to finish,
-	-- including ones started by players leaving (the server would otherwise close mid-save)
-	game:BindToClose(function()
-		for player in sessions do
-			task.spawn(save, player)
-		end
-		local deadline = os.clock() + 25
-		while activeSaves > 0 and os.clock() < deadline do
-			task.wait(0.25)
-		end
-	end)
 end
 
 return DataService
