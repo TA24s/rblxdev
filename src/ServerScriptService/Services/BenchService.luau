@@ -3,6 +3,7 @@
 -- Puts each player's saved gadgets back on their lab benches when they join. Every second each
 -- gadget earns its Income, which piles up on its bench; the owner steps on the bench to collect.
 -- Owners can also sell a gadget (hold E on its bench) and unlock benches 5 to 8 with Bolts.
+-- Other players see a Steal prompt instead (not on the Vault bench); StealService handles the theft.
 -- What's on each bench, how much is piled up and how many benches are unlocked is saved by DataService.
 -- Container: ServerScriptService/Services
 
@@ -15,6 +16,7 @@ local ServerStorage = game:GetService("ServerStorage")
 local Config = ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Config")
 local Gadgets = require(Config:WaitForChild("Gadgets"))
 local Upgrades = require(Config:WaitForChild("Upgrades"))
+local Stealing = require(Config:WaitForChild("Stealing"))
 local DataService = require(script.Parent:WaitForChild("DataService"))
 local LabService = require(script.Parent:WaitForChild("LabService"))
 local NotifyService = require(script.Parent:WaitForChild("NotifyService"))
@@ -38,6 +40,9 @@ local readyLabs: { [Player]: Model } = {} -- players whose benches are set up
 local lastCollect: { [BasePart]: number } = {}
 local sellPrompts: { [BasePart]: ProximityPrompt } = {}
 local unlockPrompts: { [BasePart]: ProximityPrompt } = {} -- only benches above BaseBenches
+local stealPrompts: { [BasePart]: ProximityPrompt } = {} -- every bench except the Vault
+local carriedModels: { [BasePart]: Model } = {} -- gadgets being carried off by a thief, hidden until they return
+local stealHandler: ((thief: Player, bench: BasePart) -> ())? = nil
 
 local BenchService = {}
 
@@ -218,12 +223,25 @@ local function refreshLab(lab: Model, data: DataService.PlayerData?)
 			sellPrompt.ActionText = if gadget then `Sell for ⚙ {formatNumber(sellPrice(gadget))}` else "Sell"
 			sellPrompt.ObjectText = if gadget then gadget.DisplayName else ""
 		end
+		local stealPrompt = stealPrompts[bench]
+		if stealPrompt then
+			local entry = data and data.Benches[benchKey(bench)]
+			local gadget = entry and Gadgets[entry.GadgetId]
+			stealPrompt.Enabled = gadget ~= nil and not carriedModels[bench]
+			stealPrompt.ObjectText = if gadget then gadget.DisplayName else ""
+			stealPrompt.HoldDuration = if gadget then Stealing.HoldSeconds[gadget.Rarity] or 1 else 1
+		end
 	end
 end
 
 local function clearLab(lab: Model)
 	getPlacedFolder(lab):ClearAllChildren()
 	for _, bench in getBenches(lab) do
+		local hidden = carriedModels[bench]
+		if hidden then
+			hidden:Destroy()
+			carriedModels[bench] = nil
+		end
 		local gui = bench:FindFirstChild(LABEL_NAME)
 		if gui then
 			gui:Destroy()
@@ -355,6 +373,10 @@ local function onSell(player: Player, bench: BasePart)
 	if not entry then
 		return
 	end
+	if carriedModels[bench] then
+		NotifyService.Send(player, "Someone is running off with that gadget! Catch them first.")
+		return
+	end
 	local gadget = Gadgets[entry.GadgetId]
 	local price = if gadget then sellPrice(gadget) else 0
 	local payout = price + entry.Stored -- the Bolts piled up on the bench come too
@@ -407,6 +429,40 @@ local function createPrompts(bench: BasePart)
 		end)
 		unlockPrompts[bench] = unlock
 	end
+
+	if bench:GetAttribute("IsVault") ~= true then
+		local steal = Instance.new("ProximityPrompt")
+		steal.Name = "StealPrompt"
+		steal.ActionText = "Steal"
+		steal.MaxActivationDistance = PROMPT_DISTANCE
+		steal.RequiresLineOfSight = false
+		steal.Enabled = false
+		steal.Parent = bench
+		steal.Triggered:Connect(function(player)
+			if stealHandler then
+				stealHandler(player, bench)
+			end
+		end)
+		stealPrompts[bench] = steal
+	end
+end
+
+-- The placed gadget model sitting on a bench, if any
+local function findPlacedModel(lab: Model, bench: BasePart): Model?
+	for _, model in getPlacedFolder(lab):GetChildren() do
+		if model:IsA("Model") and model:GetAttribute("BenchIndex") == benchIndex(bench) then
+			return model
+		end
+	end
+	return nil
+end
+
+local function setNameText(bench: BasePart, text: string)
+	local gui = bench:FindFirstChild(LABEL_NAME)
+	local label = gui and gui:FindFirstChild("GadgetName")
+	if label and label:IsA("TextLabel") then
+		label.Text = text
+	end
 end
 
 ----- Public Functions -----
@@ -447,6 +503,76 @@ function BenchService.PlaceGadget(player: Player, bench: BasePart, gadgetId: str
 	data.Benches[benchKey(bench)] = { GadgetId = gadgetId, Stored = 0 }
 	refreshLab(lab, data)
 	return true
+end
+
+-- The player whose set-up lab this bench is in, or nil for an empty lab
+function BenchService.GetBenchOwner(bench: BasePart): Player?
+	local lab = labOf(bench)
+	for player, ownedLab in readyLabs do
+		if ownedLab == lab then
+			return player
+		end
+	end
+	return nil
+end
+
+-- What sits on a bench in the owner's data, or nil if it's empty
+function BenchService.GetEntry(owner: Player, bench: BasePart): DataService.BenchEntry?
+	local data = DataService.GetData(owner)
+	return data and data.Benches[benchKey(bench)]
+end
+
+-- StealService calls this function when someone triggers a Steal prompt
+function BenchService.SetStealHandler(handler: (thief: Player, bench: BasePart) -> ())
+	stealHandler = handler
+end
+
+-- Hides the gadget on a bench while a thief carries it (true), or puts it back (false).
+-- The gadget stays in the owner's data the whole time, so it's only lost once the theft completes.
+function BenchService.SetCarried(owner: Player, bench: BasePart, carried: boolean)
+	local lab = readyLabs[owner]
+	if not (lab and bench:IsDescendantOf(lab)) then
+		return -- the owner left; their lab was already cleared
+	end
+	local entry = BenchService.GetEntry(owner, bench)
+	local gadget = entry and Gadgets[entry.GadgetId]
+	if carried and not carriedModels[bench] then
+		local model = findPlacedModel(lab, bench)
+		if model then
+			model.Parent = nil
+			carriedModels[bench] = model
+			setNameText(bench, "🚨 Being stolen!")
+		end
+	elseif not carried and carriedModels[bench] then
+		carriedModels[bench].Parent = getPlacedFolder(lab)
+		carriedModels[bench] = nil
+		setNameText(bench, if gadget then gadget.DisplayName else "")
+	end
+	refreshLab(lab, DataService.GetData(owner))
+end
+
+-- Finishes a theft: takes the carried gadget out of the owner's data and pays the owner the
+-- Bolts that had piled up on it. Returns the gadget's Id, or nil if there was nothing to take.
+function BenchService.TakeCarried(owner: Player, bench: BasePart): string?
+	local lab = readyLabs[owner]
+	local data = DataService.GetData(owner)
+	local key = benchKey(bench)
+	local entry = data and data.Benches[key]
+	if not (lab and data and entry and carriedModels[bench]) then
+		return nil
+	end
+	data.Benches[key] = nil
+	carriedModels[bench]:Destroy()
+	carriedModels[bench] = nil
+	local label = bench:FindFirstChild(LABEL_NAME)
+	if label then
+		label:Destroy()
+	end
+	if entry.Stored > 0 then
+		DataService.AddBolts(owner, entry.Stored)
+	end
+	refreshLab(lab, data)
+	return entry.GadgetId
 end
 
 function BenchService.Init()
