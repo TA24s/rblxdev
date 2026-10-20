@@ -235,6 +235,15 @@ function DataService.GetBolts(player: Player): number?
 	return data and data.Bolts
 end
 
+-- Saves the player's data soon, without waiting for the next auto-save (e.g. after a theft, so
+-- a server crash can't leave the gadget on both players' benches)
+function DataService.SaveNow(player: Player)
+	local profile = profiles[player]
+	if profile and profile:IsActive() then
+		profile:Save()
+	end
+end
+
 -- Adds Bolts (amount must be a positive whole number). Returns true if it worked.
 function DataService.AddBolts(player: Player, amount: number): boolean
 	local data = DataService.GetData(player)

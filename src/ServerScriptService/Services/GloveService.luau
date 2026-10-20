@@ -21,6 +21,7 @@ local TOOL_NAME = "BoingGlove"
 local GLOVE_COLOR = Color3.fromRGB(230, 50, 60)
 local SPRING_COLOR = Color3.fromRGB(255, 220, 60)
 local FACING_DOT = 0.3 -- how directly in front the target must be (1 = straight ahead)
+local MAX_HEIGHT_GAP = 5 -- studs; can't boing someone far above or below you
 
 ----- Variables -----
 local knockbackRemote: RemoteEvent
@@ -65,7 +66,22 @@ local function buildGlove(): Tool
 	return tool
 end
 
--- The nearest other living player in front of `player` within reach
+-- True if nothing solid (other than characters) is between the two points
+local function isClearPath(from: Vector3, to: Vector3): boolean
+	local params = RaycastParams.new()
+	params.FilterType = Enum.RaycastFilterType.Exclude
+	local characters = {}
+	for _, other in Players:GetPlayers() do
+		if other.Character then
+			table.insert(characters, other.Character)
+		end
+	end
+	params.FilterDescendantsInstances = characters
+	params.RespectCanCollide = true -- invisible walls that players walk through don't count
+	return workspace:Raycast(from, to - from, params) == nil
+end
+
+-- The nearest other living player in front of `player` within reach, with no wall in between
 local function findTarget(player: Player, root: BasePart): (Player?, BasePart?)
 	local look = root.CFrame.LookVector * Vector3.new(1, 0, 1)
 	if look.Magnitude < 0.01 then
@@ -82,7 +98,14 @@ local function findTarget(player: Player, root: BasePart): (Player?, BasePart?)
 		if other ~= player and otherRoot and otherRoot:IsA("BasePart") and humanoid and humanoid.Health > 0 then
 			local offset = (otherRoot.Position - root.Position) * Vector3.new(1, 0, 1)
 			local distance = offset.Magnitude
-			if distance <= bestDistance and distance > 0.01 and offset.Unit:Dot(look) >= FACING_DOT then
+			local heightGap = math.abs(otherRoot.Position.Y - root.Position.Y)
+			if
+				distance <= bestDistance
+				and distance > 0.01
+				and heightGap <= MAX_HEIGHT_GAP
+				and offset.Unit:Dot(look) >= FACING_DOT
+				and isClearPath(root.Position, otherRoot.Position)
+			then
 				best, bestRoot, bestDistance = other, otherRoot, distance
 			end
 		end

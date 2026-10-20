@@ -21,6 +21,7 @@ local Stealing = require(Config:WaitForChild("Stealing"))
 local BenchService = require(script.Parent:WaitForChild("BenchService"))
 local GateService = require(script.Parent:WaitForChild("GateService"))
 local LabService = require(script.Parent:WaitForChild("LabService"))
+local DataService = require(script.Parent:WaitForChild("DataService"))
 local NotifyService = require(script.Parent:WaitForChild("NotifyService"))
 local ProtectionService = require(script.Parent:WaitForChild("ProtectionService"))
 
@@ -141,13 +142,28 @@ local function cancelCarry(thief: Player, thiefMessage: string, ownerMessage: st
 	end
 end
 
+-- True if some other thief is already carrying a gadget from this owner
+local function isOwnerBeingRobbed(owner: Player): boolean
+	for _, carry in carries do
+		if carry.owner == owner then
+			return true
+		end
+	end
+	return false
+end
+
 local function deliver(thief: Player)
 	local carry = carries[thief]
 	if not carry then
 		return
 	end
 	local name = carry.gadget.DisplayName
-	local freeBench = BenchService.FindFreeBench(thief)
+	if ProtectionService.IsVictimProtected(carry.owner) then
+		-- Someone else robbed this lab first; it's protected now, so this gadget goes home
+		cancelCarry(thief, `That lab was just robbed by someone else, so the {name} went back.`, `Your {name} came back!`)
+		return
+	end
+	local freeBench = BenchService.FindFreeBench(thief, true)
 	if not freeBench then
 		cancelCarry(thief, `No free bench at home, so the {name} went back.`, `Your {name} came back!`)
 		return
@@ -169,6 +185,8 @@ local function deliver(thief: Player)
 	end
 	NotifyService.Send(thief, `You stole the {name}! 🎉`, "good")
 	local insurance = ProtectionService.OnStolen(thief, owner, gadgetId)
+	DataService.SaveNow(thief)
+	DataService.SaveNow(owner)
 	if owner.Parent == Players then
 		NotifyService.Send(owner, `{thief.DisplayName} stole your {name}! Insurance paid ⚙ {insurance}.`)
 	end
@@ -194,6 +212,10 @@ local function onStealRequested(thief: Player, bench: BasePart)
 	if benchCarrier[bench] then
 		return -- someone else grabbed it first
 	end
+	if isOwnerBeingRobbed(owner) then
+		NotifyService.Send(thief, "Someone is already stealing from this lab. Try again soon!")
+		return
+	end
 	local allowed, reason = ProtectionService.CanSteal(thief, owner)
 	if not allowed then
 		NotifyService.Send(thief, reason or "You can't steal from this lab right now.")
@@ -204,8 +226,8 @@ local function onStealRequested(thief: Player, bench: BasePart)
 	if not gadget then
 		return
 	end
-	if not BenchService.FindFreeBench(thief) then
-		NotifyService.Send(thief, "You need a free bench at home to steal a gadget.")
+	if not BenchService.FindFreeBench(thief, true) then
+		NotifyService.Send(thief, "You need a free bench at home (not the Vault) to steal a gadget.")
 		return
 	end
 	local character = thief.Character

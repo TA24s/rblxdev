@@ -480,15 +480,17 @@ function BenchService.IsReady(player: Player): boolean
 	return readyLabs[player] ~= nil
 end
 
--- The first empty unlocked bench in the player's lab (lowest BenchIndex), or nil if all are taken
-function BenchService.FindFreeBench(player: Player): BasePart?
+-- The first empty unlocked bench in the player's lab (lowest BenchIndex), or nil if all are taken.
+-- With skipVault, the Vault bench doesn't count (stolen gadgets can't land somewhere unstealable).
+function BenchService.FindFreeBench(player: Player, skipVault: boolean?): BasePart?
 	local lab = readyLabs[player]
 	local data = DataService.GetData(player)
 	if not (lab and data) then
 		return nil
 	end
 	for _, bench in getBenches(lab) do
-		if benchIndex(bench) <= unlockedCount(data) and not data.Benches[benchKey(bench)] then
+		local isVault = bench:GetAttribute("IsVault") == true
+		if benchIndex(bench) <= unlockedCount(data) and not data.Benches[benchKey(bench)] and not (skipVault and isVault) then
 			return bench
 		end
 	end

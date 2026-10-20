@@ -2,52 +2,68 @@
 -- LabPromptController
 -- Shows each player only the prompts that make sense for them: in your own lab you see Sell,
 -- Unlock and the gate lock prompts but never Steal; in other labs you only see Steal.
--- The server still checks every prompt, so this is only about what's shown on this screen.
+-- Until the server says which lab is ours, all of these prompts stay hidden.
+-- A prompt is hidden by shrinking its reach to 0 on this screen only. The server still turns
+-- prompts on and off as usual, and still checks every prompt.
 -- Container: StarterPlayer/StarterPlayerScripts
 
 ----- Services -----
 local Players = game:GetService("Players")
 
 ----- Constants -----
-local OWNER_PROMPTS = { SellPrompt = true, UnlockPrompt = true, LockPrompt = true, UpgradePrompt = true }
-local VISITOR_PROMPTS = { StealPrompt = true }
-local LAB_WAIT_SECONDS = 30
+local OWNER_PROMPTS: { [string]: boolean } = { SellPrompt = true, UnlockPrompt = true, LockPrompt = true, UpgradePrompt = true }
+local VISITOR_PROMPTS: { [string]: boolean } = { StealPrompt = true }
 
 ----- Variables -----
 local player = Players.LocalPlayer
 local labsFolder = workspace:WaitForChild("Map"):WaitForChild("Labs")
+local myIndex: any = nil -- our lab's LabIndex, once the server has given us one
+local reach: { [ProximityPrompt]: number } = setmetatable({}, { __mode = "k" }) :: any -- each prompt's real reach
 
 ----- Private Functions -----
--- Keeps a prompt hidden on this screen, even when the server turns it on again
-local function keepHidden(prompt: ProximityPrompt)
-	prompt.Enabled = false
-	prompt:GetPropertyChangedSignal("Enabled"):Connect(function()
-		if prompt.Enabled then
-			prompt.Enabled = false
+local function shouldShow(lab: Instance, prompt: ProximityPrompt): boolean
+	if myIndex == nil then
+		return false
+	end
+	local isMine = lab:GetAttribute("LabIndex") == myIndex
+	return if isMine then OWNER_PROMPTS[prompt.Name] == true else VISITOR_PROMPTS[prompt.Name] == true
+end
+
+local function apply(lab: Instance, prompt: ProximityPrompt)
+	if not (OWNER_PROMPTS[prompt.Name] or VISITOR_PROMPTS[prompt.Name]) then
+		return
+	end
+	if reach[prompt] == nil then
+		reach[prompt] = prompt.MaxActivationDistance
+	end
+	prompt.MaxActivationDistance = if shouldShow(lab, prompt) then reach[prompt] else 0
+end
+
+local function applyLab(lab: Instance)
+	for _, descendant in lab:GetDescendants() do
+		if descendant:IsA("ProximityPrompt") then
+			apply(lab, descendant)
+		end
+	end
+end
+
+----- Initialization -----
+-- Hide everything first, so nothing wrong shows while we wait for our lab
+for _, lab in labsFolder:GetChildren() do
+	applyLab(lab)
+	lab.DescendantAdded:Connect(function(descendant)
+		if descendant:IsA("ProximityPrompt") then
+			apply(lab, descendant)
 		end
 	end)
 end
 
-local function watchLab(lab: Instance, isMine: boolean)
-	local hide = if isMine then VISITOR_PROMPTS else OWNER_PROMPTS
-	local function check(descendant: Instance)
-		if descendant:IsA("ProximityPrompt") and hide[descendant.Name] then
-			keepHidden(descendant)
-		end
+-- Then show the right prompts once the server has given us a lab (and again if it ever changes)
+local function onLabIndex()
+	myIndex = player:GetAttribute("LabIndex")
+	for _, lab in labsFolder:GetChildren() do
+		applyLab(lab)
 	end
-	for _, descendant in lab:GetDescendants() do
-		check(descendant)
-	end
-	lab.DescendantAdded:Connect(check)
 end
-
------ Initialization -----
--- Wait until the server has given us a lab, so we know which one is ours
-local deadline = os.clock() + LAB_WAIT_SECONDS
-while player:GetAttribute("LabIndex") == nil and os.clock() < deadline do
-	task.wait(0.2)
-end
-local myIndex = player:GetAttribute("LabIndex")
-for _, lab in labsFolder:GetChildren() do
-	watchLab(lab, myIndex ~= nil and lab:GetAttribute("LabIndex") == myIndex)
-end
+player:GetAttributeChangedSignal("LabIndex"):Connect(onLabIndex)
+onLabIndex()
