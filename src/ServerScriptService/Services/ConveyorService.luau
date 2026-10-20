@@ -156,7 +156,7 @@ local function onBuy(item: BeltItem, player: Player)
 	item.sold = true
 	removeFromBelt(item)
 	item.model:Destroy()
-	NotifyService.Send(player, `You bought the {gadget.DisplayName}! It's on a bench in your lab.`)
+	NotifyService.Send(player, `You bought the {gadget.DisplayName}! It's on a bench in your lab.`, "good")
 end
 
 local function spawnGadget()
@@ -174,6 +174,7 @@ local function spawnGadget()
 	end
 
 	local item: BeltItem = { model = model, gadget = gadget, distance = 0, sold = false }
+	model:SetAttribute("Cost", gadget.Cost) -- lets the new-player tips point at one you can afford
 
 	createLabel(gadget, base)
 	local prompt = Instance.new("ProximityPrompt")

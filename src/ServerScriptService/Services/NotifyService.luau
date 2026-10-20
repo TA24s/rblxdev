@@ -2,6 +2,7 @@
 -- NotifyService
 -- Shows a short message on one player's screen ("You need more Bolts", "You bought ...").
 -- The client side is NotificationController, which listens on ReplicatedStorage/Remotes/Notify.
+-- An optional sound name ("good", "alarm", "lock") picks the sound SoundController plays with it.
 -- Container: ServerScriptService/Services
 
 ----- Services -----
@@ -26,8 +27,8 @@ end
 local NotifyService = {}
 
 ----- Public Functions -----
-function NotifyService.Send(player: Player, text: string)
-	(notifyRemote :: RemoteEvent):FireClient(player, text)
+function NotifyService.Send(player: Player, text: string, sound: string?)
+	(notifyRemote :: RemoteEvent):FireClient(player, text, sound)
 end
 
 function NotifyService.Init()

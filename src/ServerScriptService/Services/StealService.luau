@@ -137,7 +137,7 @@ local function cancelCarry(thief: Player, thiefMessage: string, ownerMessage: st
 		NotifyService.Send(thief, thiefMessage)
 	end
 	if ownerMessage and owner.Parent == Players then
-		NotifyService.Send(owner, ownerMessage)
+		NotifyService.Send(owner, ownerMessage, "good") -- every owner message here means the gadget came back
 	end
 end
 
@@ -167,7 +167,7 @@ local function deliver(thief: Player)
 		NotifyService.Send(thief, `Something went wrong, so the {name} went back.`)
 		return
 	end
-	NotifyService.Send(thief, `You stole the {name}! 🎉`)
+	NotifyService.Send(thief, `You stole the {name}! 🎉`, "good")
 	local insurance = ProtectionService.OnStolen(thief, owner, gadgetId)
 	if owner.Parent == Players then
 		NotifyService.Send(owner, `{thief.DisplayName} stole your {name}! Insurance paid ⚙ {insurance}.`)
@@ -250,7 +250,7 @@ local function onStealRequested(thief: Player, bench: BasePart)
 	end))
 
 	NotifyService.Send(thief, `Got it! Run to your lab's dock within {Stealing.CarrySeconds}s!`)
-	NotifyService.Send(owner, `🚨 {thief.DisplayName} is stealing your {gadget.DisplayName}!`)
+	NotifyService.Send(owner, `🚨 {thief.DisplayName} is stealing your {gadget.DisplayName}!`, "alarm")
 end
 
 -- The thief stepped on a Receiving Dock: deliver if it's their own lab's dock

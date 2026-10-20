@@ -15,6 +15,7 @@ local ServerStorage = game:GetService("ServerStorage")
 ----- Modules -----
 local Config = ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Config")
 local Gadgets = require(Config:WaitForChild("Gadgets"))
+local Rarities = require(Config:WaitForChild("Rarities"))
 local Upgrades = require(Config:WaitForChild("Upgrades"))
 local Stealing = require(Config:WaitForChild("Stealing"))
 local DataService = require(script.Parent:WaitForChild("DataService"))
@@ -117,7 +118,7 @@ local function createLabel(bench: BasePart, gadget: Gadgets.Gadget)
 	gui.MaxDistance = 50
 
 	local lines = {
-		{ name = "GadgetName", text = gadget.DisplayName, color = Color3.new(1, 1, 1) },
+		{ name = "GadgetName", text = gadget.DisplayName, color = Rarities[gadget.Rarity].Color },
 		{ name = "Income", text = `+{formatNumber(gadget.Income)}/s`, color = Color3.fromRGB(140, 255, 140) },
 		{ name = "Stored", text = "⚙ 0", color = BOLT_COLOR },
 	}
@@ -293,13 +294,21 @@ local function earnIncome()
 		if not data then
 			continue
 		end
+		local total = 0
 		for _, bench in getBenches(lab) do
 			local entry = data.Benches[benchKey(bench)]
 			local gadget = entry and Gadgets[entry.GadgetId]
 			if entry and gadget then
 				entry.Stored += gadget.Income * INCOME_INTERVAL
 				setStoredText(bench, entry.Stored)
+				total += gadget.Income
 			end
+		end
+		-- The player list shows everyone's Bolts per second (DataService makes the value)
+		local leaderstats = player:FindFirstChild("leaderstats")
+		local income = leaderstats and leaderstats:FindFirstChild("Income")
+		if income and income:IsA("IntValue") then
+			income.Value = total
 		end
 	end
 end
@@ -360,7 +369,7 @@ local function onUnlock(player: Player, bench: BasePart)
 	end
 	data.ExtraBenches += 1
 	refreshLab(lab, data)
-	NotifyService.Send(player, `Bench {benchIndex(bench)} unlocked! Buy a gadget to put on it.`)
+	NotifyService.Send(player, `Bench {benchIndex(bench)} unlocked! Buy a gadget to put on it.`, "good")
 end
 
 local function onSell(player: Player, bench: BasePart)

@@ -137,7 +137,7 @@ local function onLock(player: Player, lab: Model)
 	local seconds = lockSeconds(data.GateLevel)
 	lab:SetAttribute("GateLockedUntil", t + seconds)
 	refresh(lab)
-	NotifyService.Send(player, `Gate locked for {seconds} seconds!`)
+	NotifyService.Send(player, `Gate locked for {seconds} seconds!`, "lock")
 end
 
 local function onUpgrade(player: Player, lab: Model)
@@ -155,7 +155,7 @@ local function onUpgrade(player: Player, lab: Model)
 	end
 	data.GateLevel += 1
 	refresh(lab)
-	NotifyService.Send(player, `Lock upgraded! It now lasts {lockSeconds(data.GateLevel)} seconds.`)
+	NotifyService.Send(player, `Lock upgraded! It now lasts {lockSeconds(data.GateLevel)} seconds.`, "good")
 end
 
 local function createLabel(button: BasePart): TextLabel
