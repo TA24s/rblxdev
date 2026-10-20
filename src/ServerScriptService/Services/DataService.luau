@@ -6,7 +6,7 @@
 -- so two servers can never load the same player at once (that would let stolen gadgets be copied).
 -- Bolts are only ever changed here, on the server. The client just displays them.
 -- Saved: Bolts, which gadget sits on each lab bench with the Bolts piled up on it, how many
--- extra benches the player has unlocked, and their gate lock level.
+-- extra benches the player has unlocked, their gate lock level and new-player shield time left.
 -- Saves made before ProfileStore (DataStore "PlayerData_v1") are copied in once, on first join,
 -- and the old store is never written again, so it stays as a backup.
 -- Container: ServerScriptService/Services
@@ -14,9 +14,11 @@
 ----- Services -----
 local DataStoreService = game:GetService("DataStoreService")
 local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local ServerStorage = game:GetService("ServerStorage")
 
 ----- Modules -----
+local Stealing = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Config"):WaitForChild("Stealing"))
 local ProfileStore = require(ServerStorage:WaitForChild("ProfileStore") :: ModuleScript)
 
 ----- Constants -----
@@ -39,6 +41,7 @@ export type PlayerData = {
 	Benches: { [string]: BenchEntry }, -- keyed by BenchIndex as text ("1".."8"), as DataStores need text keys
 	ExtraBenches: number, -- benches unlocked beyond the first 4 (0 to 4)
 	GateLevel: number, -- gate lock upgrades bought (0 to 3)
+	ShieldSeconds: number, -- new-player shield time left; nobody can steal from you while it's above 0
 	LegacyChecked: boolean, -- true once the old PlayerData_v1 save has been copied in (or there was none)
 }
 
@@ -46,11 +49,12 @@ export type PlayerData = {
 -- What a brand-new player starts with (also ProfileStore's template)
 local function defaultData(): PlayerData
 	return {
-		DataVersion = 5,
+		DataVersion = 6,
 		Bolts = STARTING_BOLTS,
 		Benches = {},
 		ExtraBenches = 0,
 		GateLevel = 0,
+		ShieldSeconds = Stealing.ShieldSeconds,
 		LegacyChecked = false,
 	}
 end
@@ -74,6 +78,9 @@ local function reconcile(saved: any): PlayerData
 		end
 		if typeof(saved.GateLevel) == "number" then
 			data.GateLevel = math.clamp(math.floor(saved.GateLevel), 0, 3)
+		end
+		if typeof(saved.ShieldSeconds) == "number" then
+			data.ShieldSeconds = math.clamp(math.floor(saved.ShieldSeconds), 0, Stealing.ShieldSeconds)
 		end
 		-- Version 1 saves had no benches; anything malformed is skipped rather than trusted
 		if typeof(saved.Benches) == "table" then

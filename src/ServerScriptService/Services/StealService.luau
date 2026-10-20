@@ -3,7 +3,8 @@
 -- Stealing. In another player's lab (gate not locked), hold E on a gadget to grab it. A copy of it
 -- rides over the thief's head while they walk slower; touching their own lab's Receiving Dock
 -- within 60 seconds moves it onto one of their free benches. If time runs out, the thief dies or
--- resets, or either player leaves, the gadget goes back to its owner.
+-- resets, either player leaves, or the owner hits them with the Boing Glove, the gadget goes back.
+-- ProtectionService decides whether a theft is allowed (shields, cooldowns, punch-down rule).
 -- The gadget stays in the owner's data until the moment it's delivered, so it can't be duplicated.
 -- Container: ServerScriptService/Services
 
@@ -21,6 +22,7 @@ local BenchService = require(script.Parent:WaitForChild("BenchService"))
 local GateService = require(script.Parent:WaitForChild("GateService"))
 local LabService = require(script.Parent:WaitForChild("LabService"))
 local NotifyService = require(script.Parent:WaitForChild("NotifyService"))
+local ProtectionService = require(script.Parent:WaitForChild("ProtectionService"))
 
 ----- Constants -----
 local TIMER_INTERVAL = 0.25 -- seconds between countdown updates
@@ -166,8 +168,9 @@ local function deliver(thief: Player)
 		return
 	end
 	NotifyService.Send(thief, `You stole the {name}! 🎉`)
+	local insurance = ProtectionService.OnStolen(thief, owner, gadgetId)
 	if owner.Parent == Players then
-		NotifyService.Send(owner, `{thief.DisplayName} stole your {name}!`)
+		NotifyService.Send(owner, `{thief.DisplayName} stole your {name}! Insurance paid ⚙ {insurance}.`)
 	end
 end
 
@@ -190,6 +193,11 @@ local function onStealRequested(thief: Player, bench: BasePart)
 	end
 	if benchCarrier[bench] then
 		return -- someone else grabbed it first
+	end
+	local allowed, reason = ProtectionService.CanSteal(thief, owner)
+	if not allowed then
+		NotifyService.Send(thief, reason or "You can't steal from this lab right now.")
+		return
 	end
 	local entry = BenchService.GetEntry(owner, bench)
 	local gadget = entry and Gadgets[entry.GadgetId]
@@ -227,6 +235,8 @@ local function onStealRequested(thief: Player, bench: BasePart)
 	carries[thief] = carry
 	benchCarrier[bench] = thief
 	BenchService.SetCarried(owner, bench, true)
+	ProtectionService.OnStealStarted(thief)
+	humanoid:UnequipTools() -- no Boing Glove while carrying
 	humanoid.WalkSpeed = Stealing.CarryWalkSpeed
 	humanoid.JumpHeight = Stealing.CarryJumpHeight
 	visual.Parent = character
@@ -281,6 +291,17 @@ end
 -- True while the player is carrying a stolen gadget
 function StealService.IsCarrying(player: Player): boolean
 	return carries[player] ~= nil
+end
+
+-- The owner hit the thief with the Boing Glove: the gadget snaps back home. Returns true if it did.
+function StealService.KnockLoose(thief: Player, hitter: Player): boolean
+	local carry = carries[thief]
+	if not (carry and carry.owner == hitter) then
+		return false
+	end
+	local name = carry.gadget.DisplayName
+	cancelCarry(thief, `{hitter.DisplayName} boinged the {name} out of your hands!`, `Boing! You got your {name} back!`)
+	return true
 end
 
 function StealService.Init()
