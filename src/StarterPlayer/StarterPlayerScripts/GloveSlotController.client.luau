@@ -68,6 +68,7 @@ end
 local gui = Instance.new("ScreenGui")
 gui.Name = "GloveSlot"
 gui.ResetOnSpawn = false
+gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling -- children draw over their parent; ZIndex orders siblings
 
 local slot = Instance.new("TextButton")
 slot.Name = "Slot"
@@ -93,6 +94,24 @@ gradient.Parent = slot
 local scale = Instance.new("UIScale")
 scale.Parent = slot
 
+-- A glowing pink disc behind the glove that pulses (harder while the glove is held)
+local glow = Instance.new("Frame")
+glow.Name = "Glow"
+glow.AnchorPoint = Vector2.new(0.5, 0.5)
+glow.Position = UDim2.fromScale(0.5, 0.5)
+glow.Size = UDim2.fromScale(0.7, 0.7)
+glow.BackgroundColor3 = PINK
+glow.BackgroundTransparency = 0.2
+glow.ZIndex = 1
+glow.Parent = slot
+local glowCorner = Instance.new("UICorner")
+glowCorner.CornerRadius = UDim.new(1, 0)
+glowCorner.Parent = glow
+local glowGradient = Instance.new("UIGradient")
+glowGradient.Transparency = NumberSequence.new(0, 0.75)
+glowGradient.Rotation = 90
+glowGradient.Parent = glow
+
 -- The 3D glove
 local viewport = Instance.new("ViewportFrame")
 viewport.Name = "Glove"
@@ -101,6 +120,7 @@ viewport.Size = UDim2.fromScale(1, 1)
 viewport.Ambient = Color3.fromRGB(200, 190, 220)
 viewport.LightColor = Color3.new(1, 1, 1)
 viewport.LightDirection = Vector3.new(-1, -1, -1)
+viewport.ZIndex = 2
 viewport.Parent = slot
 local camera = Instance.new("Camera")
 camera.FieldOfView = 40
@@ -196,7 +216,7 @@ local function loadGloveModel(tool: Tool)
 			end
 		end
 	end
-	camera.CFrame = CFrame.lookAt(Vector3.new(3.4, 1.4, 3.4), Vector3.new(0, 0, 0.5))
+	camera.CFrame = CFrame.lookAt(Vector3.new(2.6, 1.1, 3.3), Vector3.new(0, 0, 0.7))
 end
 
 local function refresh()
@@ -305,5 +325,12 @@ RunService.RenderStepped:Connect(function(deltaTime)
 	spinAngle += (if held then HELD_SPIN else IDLE_SPIN) * deltaTime
 	local punch = math.max(0, punchUntil - os.clock() - (Stealing.GloveCooldownSeconds - 0.25)) / 0.25 -- 1 to 0 over the first 0.25s
 	local bob = math.sin(os.clock() * 3) * 0.12
-	gloveModel:PivotTo(CFrame.new(0, bob, -punch * 1.6) * CFrame.Angles(0, math.rad(spinAngle), 0))
+	local pulse = 0.7 + (if held then 0.12 else 0.05) * math.sin(os.clock() * (if held then 8 else 3))
+	glow.Size = UDim2.fromScale(pulse + punch * 0.25, pulse + punch * 0.25)
+	glow.BackgroundColor3 = if held then YELLOW else PINK
+	-- Turn around the middle of the glove-and-spring, and punch in the direction the glove faces
+	local middle = CFrame.new(0, 0, 0.7)
+	gloveModel:PivotTo(
+		CFrame.new(0, bob, 0) * middle * CFrame.Angles(0, math.rad(spinAngle), 0) * CFrame.new(0, 0, -punch * 1.6) * middle:Inverse()
+	)
 end)
