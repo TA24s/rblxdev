@@ -5,6 +5,7 @@
 -- Owners can also sell a gadget (hold E on its bench) and unlock benches 5 to 8 with Bolts.
 -- Other players see a Steal prompt instead (not on the Vault bench); StealService handles the theft.
 -- What's on each bench, how much is piled up and how many benches are unlocked is saved by DataService.
+-- Each rebirth makes every gadget earn more (DataService.GetIncomeMultiplier).
 -- Container: ServerScriptService/Services
 
 ----- Services -----
@@ -39,6 +40,7 @@ local modelsFolder = ServerStorage:WaitForChild("GadgetModels")
 local labsFolder = workspace:WaitForChild("Map"):WaitForChild("Labs")
 local readyLabs: { [Player]: Model } = {} -- players whose benches are set up
 local lastCollect: { [BasePart]: number } = {}
+local leftover: { [BasePart]: number } = {} -- part-Bolts earned with a rebirth boost, paid once they add up to 1
 local sellPrompts: { [BasePart]: ProximityPrompt } = {}
 local unlockPrompts: { [BasePart]: ProximityPrompt } = {} -- only benches above BaseBenches
 local stealPrompts: { [BasePart]: ProximityPrompt } = {} -- every bench except the Vault
@@ -238,6 +240,7 @@ end
 local function clearLab(lab: Model)
 	getPlacedFolder(lab):ClearAllChildren()
 	for _, bench in getBenches(lab) do
+		leftover[bench] = nil
 		local hidden = carriedModels[bench]
 		if hidden then
 			hidden:Destroy()
@@ -248,6 +251,20 @@ local function clearLab(lab: Model)
 			gui:Destroy()
 		end
 	end
+end
+
+-- Puts the player's saved gadgets on their benches
+local function showSavedGadgets(player: Player, lab: Model, data: DataService.PlayerData)
+	for _, bench in getBenches(lab) do
+		local entry = data.Benches[benchKey(bench)]
+		local gadget = entry and Gadgets[entry.GadgetId]
+		if entry and gadget then
+			showOnBench(player, bench, gadget, entry.Stored)
+		elseif entry then
+			warn(`[BenchService] Unknown gadget {entry.GadgetId} on bench {benchKey(bench)} for {player.Name}`)
+		end
+	end
+	refreshLab(lab, data)
 end
 
 local function setUpPlayer(player: Player)
@@ -267,16 +284,7 @@ local function setUpPlayer(player: Player)
 	end
 
 	readyLabs[player] = lab
-	for _, bench in getBenches(lab) do
-		local entry = data.Benches[benchKey(bench)]
-		local gadget = entry and Gadgets[entry.GadgetId]
-		if entry and gadget then
-			showOnBench(player, bench, gadget, entry.Stored)
-		elseif entry then
-			warn(`[BenchService] Unknown gadget {entry.GadgetId} on bench {benchKey(bench)} for {player.Name}`)
-		end
-	end
-	refreshLab(lab, data)
+	showSavedGadgets(player, lab, data)
 end
 
 local function onPlayerRemoving(player: Player)
@@ -294,21 +302,26 @@ local function earnIncome()
 		if not data then
 			continue
 		end
+		local multiplier = DataService.GetIncomeMultiplier(player)
 		local total = 0
 		for _, bench in getBenches(lab) do
 			local entry = data.Benches[benchKey(bench)]
 			local gadget = entry and Gadgets[entry.GadgetId]
 			if entry and gadget then
-				entry.Stored += gadget.Income * INCOME_INTERVAL
+				-- Bolts are whole numbers, so any part-Bolt from the boost waits for the next second
+				local earned = gadget.Income * multiplier * INCOME_INTERVAL + (leftover[bench] or 0)
+				local whole = math.floor(earned)
+				leftover[bench] = earned - whole
+				entry.Stored += whole
 				setStoredText(bench, entry.Stored)
-				total += gadget.Income
+				total += gadget.Income * multiplier
 			end
 		end
 		-- The player list shows everyone's Bolts per second (DataService makes the value)
 		local leaderstats = player:FindFirstChild("leaderstats")
 		local income = leaderstats and leaderstats:FindFirstChild("Income")
 		if income and income:IsA("IntValue") then
-			income.Value = total
+			income.Value = math.floor(total)
 		end
 	end
 end
@@ -584,6 +597,18 @@ function BenchService.TakeCarried(owner: Player, bench: BasePart): string?
 	end
 	refreshLab(lab, data)
 	return entry.GadgetId
+end
+
+-- After a rebirth (DataService.ResetForRebirth): clears the player's benches and shows their
+-- lab as it is now (no gadgets, only the starting benches unlocked)
+function BenchService.ReloadLab(player: Player)
+	local lab = readyLabs[player]
+	local data = DataService.GetData(player)
+	if not (lab and data) then
+		return
+	end
+	clearLab(lab)
+	showSavedGadgets(player, lab, data)
 end
 
 function BenchService.Init()

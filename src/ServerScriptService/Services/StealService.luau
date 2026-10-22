@@ -310,6 +310,11 @@ local function updateTimers()
 end
 
 ----- Public Functions -----
+-- True while someone is carrying off one of the owner's gadgets
+function StealService.IsBeingRobbed(owner: Player): boolean
+	return isOwnerBeingRobbed(owner)
+end
+
 -- True while the player is carrying a stolen gadget
 function StealService.IsCarrying(player: Player): boolean
 	return carries[player] ~= nil

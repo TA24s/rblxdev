@@ -7,7 +7,7 @@
 -- Bolts are only ever changed here, on the server. The client just displays them.
 -- Saved: Bolts, which gadget sits on each lab bench with the Bolts piled up on it, how many
 -- extra benches the player has unlocked, their gate lock level, new-player shield time left and
--- how far through the new-player tips they are.
+-- how far through the new-player tips they are, and how many times they've rebirthed.
 -- Saves made before ProfileStore (DataStore "PlayerData_v1") are copied in once, on first join,
 -- and the old store is never written again, so it stays as a backup.
 -- Container: ServerScriptService/Services
@@ -19,7 +19,9 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local ServerStorage = game:GetService("ServerStorage")
 
 ----- Modules -----
-local Stealing = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Config"):WaitForChild("Stealing"))
+local Config = ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Config")
+local Rebirth = require(Config:WaitForChild("Rebirth"))
+local Stealing = require(Config:WaitForChild("Stealing"))
 local ProfileStore = require(ServerStorage:WaitForChild("ProfileStore") :: ModuleScript)
 
 ----- Constants -----
@@ -44,6 +46,7 @@ export type PlayerData = {
 	GateLevel: number, -- gate lock upgrades bought (0 to 3)
 	ShieldSeconds: number, -- new-player shield time left; nobody can steal from you while it's above 0
 	TipsDone: number, -- how many new-player tips have been finished (TipsService)
+	Rebirths: number, -- how many times the player has rebirthed (RebirthService)
 	LegacyChecked: boolean, -- true once the old PlayerData_v1 save has been copied in (or there was none)
 }
 
@@ -51,13 +54,14 @@ export type PlayerData = {
 -- What a brand-new player starts with (also ProfileStore's template)
 local function defaultData(): PlayerData
 	return {
-		DataVersion = 7,
+		DataVersion = 8,
 		Bolts = STARTING_BOLTS,
 		Benches = {},
 		ExtraBenches = 0,
 		GateLevel = 0,
 		ShieldSeconds = Stealing.ShieldSeconds,
 		TipsDone = 0,
+		Rebirths = 0,
 		LegacyChecked = false,
 	}
 end
@@ -84,6 +88,9 @@ local function reconcile(saved: any): PlayerData
 		end
 		if typeof(saved.TipsDone) == "number" then
 			data.TipsDone = math.clamp(math.floor(saved.TipsDone), 0, 100)
+		end
+		if typeof(saved.Rebirths) == "number" then
+			data.Rebirths = math.max(0, math.floor(saved.Rebirths))
 		end
 		if typeof(saved.ShieldSeconds) == "number" then
 			data.ShieldSeconds = math.clamp(math.floor(saved.ShieldSeconds), 0, Stealing.ShieldSeconds)
@@ -124,7 +131,15 @@ local function updateLeaderstats(player: Player, bolts: number)
 	end
 end
 
-local function createLeaderstats(player: Player, bolts: number)
+local function updateRebirthsStat(player: Player, rebirths: number)
+	local leaderstats = player:FindFirstChild("leaderstats")
+	local value = leaderstats and leaderstats:FindFirstChild("Rebirths")
+	if value and value:IsA("IntValue") then
+		value.Value = rebirths
+	end
+end
+
+local function createLeaderstats(player: Player, bolts: number, rebirths: number)
 	local leaderstats = Instance.new("Folder")
 	leaderstats.Name = "leaderstats"
 	local value = Instance.new("IntValue")
@@ -135,6 +150,10 @@ local function createLeaderstats(player: Player, bolts: number)
 	local income = Instance.new("IntValue")
 	income.Name = "Income"
 	income.Parent = leaderstats
+	local rebirthsValue = Instance.new("IntValue")
+	rebirthsValue.Name = "Rebirths"
+	rebirthsValue.Value = rebirths
+	rebirthsValue.Parent = leaderstats
 	leaderstats.Parent = player
 end
 
@@ -207,7 +226,7 @@ local function onPlayerAdded(player: Player)
 	end
 
 	profiles[player] = profile
-	createLeaderstats(player, data.Bolts)
+	createLeaderstats(player, data.Bolts, data.Rebirths)
 	player:SetAttribute("DataLoaded", true)
 	if ProfileStore.DataStoreState ~= "Access" then
 		warn("[DataService] Saving is OFF for this test: turn on Studio access to API services to test saving.")
@@ -242,6 +261,29 @@ function DataService.SaveNow(player: Player)
 	if profile and profile:IsActive() then
 		profile:Save()
 	end
+end
+
+-- How much the player's gadgets earn, from their rebirths (1 if they never rebirthed)
+function DataService.GetIncomeMultiplier(player: Player): number
+	local data = DataService.GetData(player)
+	return Rebirth.MultiplierFor(if data then data.Rebirths else 0)
+end
+
+-- Rebirth: Bolts back to the starting amount, no gadgets, no extra benches, one more rebirth.
+-- Everything else (gate level, shield, tips) is kept. RebirthService checks the cost first;
+-- BenchService.ReloadLab clears the gadgets off the benches afterwards.
+function DataService.ResetForRebirth(player: Player): boolean
+	local data = DataService.GetData(player)
+	if not data then
+		return false
+	end
+	data.Bolts = STARTING_BOLTS
+	data.Benches = {}
+	data.ExtraBenches = 0
+	data.Rebirths += 1
+	updateLeaderstats(player, data.Bolts)
+	updateRebirthsStat(player, data.Rebirths)
+	return true
 end
 
 -- Adds Bolts (amount must be a positive whole number). Returns true if it worked.

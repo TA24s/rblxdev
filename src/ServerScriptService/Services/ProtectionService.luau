@@ -44,7 +44,7 @@ local function formatTime(seconds: number): string
 	return string.format("%d:%02d", whole // 60, whole % 60)
 end
 
--- Bolts per second from every gadget on the player's benches
+-- Bolts per second from every gadget on the player's benches, with their rebirth boost
 local function incomeOf(player: Player): number
 	local data = DataService.GetData(player)
 	local total = 0
@@ -56,7 +56,7 @@ local function incomeOf(player: Player): number
 			end
 		end
 	end
-	return total
+	return total * DataService.GetIncomeMultiplier(player)
 end
 
 local function victimSecondsLeft(player: Player): number
