@@ -2,8 +2,8 @@
 -- HudController
 -- Builds the on-screen Bolts counter and keeps it in sync with the player's Bolts: a glossy
 -- panel with a spinning 3D gold gear (it whirs faster when you earn), the amount, a pop when
--- it goes up and a "+N" that floats away. It only displays the number: Bolts are changed on the
--- server by DataService.
+-- it goes up and a "+N" that floats away, with a green "+N/s" income tag underneath. It only
+-- displays the numbers: Bolts are changed on the server by DataService.
 -- Container: StarterPlayer/StarterPlayerScripts
 
 ----- Services -----
@@ -140,6 +140,48 @@ local function buildHud(): (TextLabel, UIScale, Model, Frame)
 	return label, scale, gear, frame
 end
 
+-- The green "+12/s" tag hanging under the counter
+local function buildIncomeTag(frame: Frame): TextLabel
+	local tag = Instance.new("Frame")
+	tag.Name = "IncomeTag"
+	tag.AnchorPoint = Vector2.new(0.5, 0)
+	tag.Position = UDim2.new(0.5, 8, 1, 2)
+	tag.Size = UDim2.fromOffset(0, 26)
+	tag.AutomaticSize = Enum.AutomaticSize.X
+	tag.BackgroundColor3 = Color3.new(1, 1, 1)
+	tag.Parent = frame
+	local corner = Instance.new("UICorner")
+	corner.CornerRadius = UDim.new(1, 0)
+	corner.Parent = tag
+	local gradient = Instance.new("UIGradient")
+	gradient.Color = ColorSequence.new(Color3.fromRGB(40, 150, 70), Color3.fromRGB(15, 70, 35))
+	gradient.Rotation = 90
+	gradient.Parent = tag
+	local tagStroke = Instance.new("UIStroke")
+	tagStroke.Color = Color3.fromRGB(120, 255, 160)
+	tagStroke.Thickness = 1.5
+	tagStroke.Parent = tag
+	local padding = Instance.new("UIPadding")
+	padding.PaddingLeft = UDim.new(0, 12)
+	padding.PaddingRight = UDim.new(0, 12)
+	padding.Parent = tag
+	local text = Instance.new("TextLabel")
+	text.Name = "Amount"
+	text.Size = UDim2.fromScale(0, 1)
+	text.AutomaticSize = Enum.AutomaticSize.X
+	text.BackgroundTransparency = 1
+	text.Font = Enum.Font.FredokaOne
+	text.TextSize = 18
+	text.TextColor3 = Color3.fromRGB(150, 255, 180)
+	text.Text = "+0/s"
+	text.Parent = tag
+	local textStroke = Instance.new("UIStroke")
+	textStroke.Color = DARK
+	textStroke.Thickness = 1.5
+	textStroke.Parent = text
+	return text
+end
+
 -- "+25" rising from the counter and fading out
 local function floatGain(frame: Frame, amount: number)
 	local gain = Instance.new("TextLabel")
@@ -166,6 +208,7 @@ end
 
 ----- Initialization -----
 local label, scale, gear, frame = buildHud()
+local incomeText = buildIncomeTag(frame)
 
 RunService.RenderStepped:Connect(function(deltaTime)
 	spinBoost = math.max(0, spinBoost - spinBoost * SPIN_DECAY * deltaTime)
@@ -179,6 +222,13 @@ while not player:GetAttribute("DataLoaded") do
 end
 local leaderstats = player:WaitForChild("leaderstats")
 local bolts = leaderstats:WaitForChild("Bolts") :: IntValue
+
+local income = leaderstats:WaitForChild("Income") :: IntValue
+local function showIncome()
+	incomeText.Text = `+{formatNumber(income.Value)}/s`
+end
+income.Changed:Connect(showIncome)
+showIncome()
 
 local lastValue = bolts.Value
 label.Text = formatNumber(bolts.Value)

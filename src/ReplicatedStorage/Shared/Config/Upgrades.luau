@@ -1,6 +1,7 @@
 --!strict
 -- Upgrades
--- Prices and timings for lab upgrades (benches and the gate lock) and the selling rate.
+-- Prices and timings for lab upgrades (benches, the gate lock and the income boost) and the
+-- selling rate. The Upgrades panel (MenuController) reads the same numbers.
 -- Numbers are provisional, to balance in playtests.
 -- Container: ReplicatedStorage/Shared/Config
 
@@ -17,6 +18,9 @@ local Upgrades = {
 	GateUpgradeCosts = { 2000, 15000, 100000 },
 	-- After the lock ends, the button recharges for this long before it can lock again
 	GateCooldownSeconds = 30,
+	-- Bolts for income boost level 1, 2 and 3; each level makes every gadget earn this much more
+	IncomeBoostCosts = { 10000, 75000, 400000 },
+	IncomeBoostPerLevel = 0.25,
 }
 
 return Upgrades

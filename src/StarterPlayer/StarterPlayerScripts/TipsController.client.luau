@@ -181,7 +181,7 @@ local function buildBanner(): (Frame, TextLabel, TextLabel, TextButton)
 	local frame = Instance.new("Frame")
 	frame.Name = "Banner"
 	frame.AnchorPoint = Vector2.new(0.5, 0)
-	frame.Position = UDim2.new(0.5, 0, 0, 76) -- just under the Bolts counter
+	frame.Position = UDim2.new(0.5, 0, 0, 98) -- just under the Bolts counter and its income tag
 	frame.Size = UDim2.new(0.92, 0, 0, 74)
 	frame.BackgroundColor3 = Color3.fromRGB(35, 25, 60)
 	frame.BackgroundTransparency = 0.1

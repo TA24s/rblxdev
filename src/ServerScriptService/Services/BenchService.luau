@@ -367,22 +367,33 @@ local function ownerOnly(player: Player, bench: BasePart): (Model?, DataService.
 	return lab, data
 end
 
+-- Unlocks the next locked bench in the player's lab if they can pay for it
+local function unlockNext(player: Player, lab: Model, data: DataService.PlayerData)
+	local index = unlockedCount(data) + 1
+	local cost = Upgrades.BenchUnlockCosts[index - Upgrades.BaseBenches]
+	if not cost then
+		NotifyService.Send(player, "All your benches are already unlocked.")
+		return
+	end
+	if not DataService.SpendBolts(player, cost) then
+		NotifyService.Send(player, `You need ⚙ {formatNumber(cost)} to unlock bench {index}.`)
+		return
+	end
+	data.ExtraBenches += 1
+	refreshLab(lab, data)
+	DataService.SyncAttributes(player)
+	NotifyService.Send(player, `Bench {index} unlocked! Buy a gadget to put on it.`, "good")
+end
+
 local function onUnlock(player: Player, bench: BasePart)
 	local lab, data = ownerOnly(player, bench)
-	local cost = unlockCost(bench)
-	if not (lab and data and cost) then
+	if not (lab and data and unlockCost(bench)) then
 		return
 	end
 	if benchIndex(bench) ~= unlockedCount(data) + 1 then
 		return -- only the next bench in order; the prompt is normally hidden for the others
 	end
-	if not DataService.SpendBolts(player, cost) then
-		NotifyService.Send(player, `You need ⚙ {formatNumber(cost)} to unlock this bench.`)
-		return
-	end
-	data.ExtraBenches += 1
-	refreshLab(lab, data)
-	NotifyService.Send(player, `Bench {benchIndex(bench)} unlocked! Buy a gadget to put on it.`, "good")
+	unlockNext(player, lab, data)
 end
 
 local function onSell(player: Player, bench: BasePart)
@@ -525,8 +536,18 @@ function BenchService.PlaceGadget(player: Player, bench: BasePart, gadgetId: str
 		return false
 	end
 	data.Benches[benchKey(bench)] = { GadgetId = gadgetId, Stored = 0 }
+	DataService.MarkDiscovered(player, gadgetId)
 	refreshLab(lab, data)
 	return true
+end
+
+-- The Upgrades panel's "More Benches" button (MenuService): unlocks the next bench in order
+function BenchService.UnlockNext(player: Player)
+	local lab = readyLabs[player]
+	local data = DataService.GetData(player)
+	if lab and data then
+		unlockNext(player, lab, data)
+	end
 end
 
 -- The player whose set-up lab this bench is in, or nil for an empty lab

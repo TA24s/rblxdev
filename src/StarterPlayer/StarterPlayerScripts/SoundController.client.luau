@@ -3,6 +3,9 @@
 -- Plays short sounds on this player's screen: a ping when Bolts go up, a click with each message
 -- (or a cheer, alarm or switch when the server asks for one), a snap when you swing the Boing
 -- Glove and a spring when you get bounced. Uses sounds built into Roblox, so nothing to upload.
+-- Also loops the background music. Both follow the Music and SFX switches in Settings
+-- (player attributes SettingMusic and SettingSfx, saved by MenuService).
+-- The music is "Kinetic Algorithm" from the free Creator Store library; swap MUSIC_ID to change it.
 -- Container: StarterPlayer/StarterPlayerScripts
 
 ----- Services -----
@@ -20,6 +23,8 @@ local SOUNDS = {
 	swing = { id = "rbxasset://sounds/snap.wav", volume = 0.6 },
 	boing = { id = "rbxasset://sounds/action_jump.mp3", volume = 0.8 },
 }
+local MUSIC_ID = "rbxassetid://96355771634096"
+local MUSIC_VOLUME = 0.25
 local COINS_GAP = 0.15 -- seconds; collecting can raise Bolts many times quickly
 
 ----- Variables -----
@@ -35,7 +40,7 @@ local watchedTools: { [Tool]: boolean } = setmetatable({}, { __mode = "k" }) :: 
 ----- Private Functions -----
 local function play(name: string)
 	local sound = sounds[name]
-	if sound then
+	if sound and player:GetAttribute("SettingSfx") ~= false then
 		SoundService:PlayLocalSound(sound)
 	end
 end
@@ -75,6 +80,24 @@ for name, info in SOUNDS do
 	sound.Parent = soundFolder
 	sounds[name] = sound
 end
+
+local music = Instance.new("Sound")
+music.Name = "Music"
+music.SoundId = MUSIC_ID
+music.Volume = MUSIC_VOLUME
+music.Looped = true
+music.Parent = soundFolder
+local function updateMusic()
+	local on = player:GetAttribute("DataLoaded") == true and player:GetAttribute("SettingMusic") ~= false
+	if on and not music.IsPlaying then
+		music:Resume()
+	elseif not on and music.IsPlaying then
+		music:Pause()
+	end
+end
+player:GetAttributeChangedSignal("SettingMusic"):Connect(updateMusic)
+player:GetAttributeChangedSignal("DataLoaded"):Connect(updateMusic)
+updateMusic()
 
 local notifyRemote = remotes:WaitForChild("Notify") :: RemoteEvent
 notifyRemote.OnClientEvent:Connect(function(_text: string, sound: string?)

@@ -7,7 +7,10 @@
 -- Bolts are only ever changed here, on the server. The client just displays them.
 -- Saved: Bolts, which gadget sits on each lab bench with the Bolts piled up on it, how many
 -- extra benches the player has unlocked, their gate lock level, new-player shield time left and
--- how far through the new-player tips they are, and how many times they've rebirthed.
+-- how far through the new-player tips they are, how many times they've rebirthed, their income
+-- boost level, which gadgets they've found (the Index) and their Music and SFX settings.
+-- Upgrade levels, found gadgets and settings are copied to player attributes so the menu panels
+-- (MenuController) can show them; call SyncAttributes after changing any of them.
 -- Saves made before ProfileStore (DataStore "PlayerData_v1") are copied in once, on first join,
 -- and the old store is never written again, so it stays as a backup.
 -- Container: ServerScriptService/Services
@@ -21,6 +24,7 @@ local ServerStorage = game:GetService("ServerStorage")
 ----- Modules -----
 local Config = ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Config")
 local Rebirth = require(Config:WaitForChild("Rebirth"))
+local Upgrades = require(Config:WaitForChild("Upgrades"))
 local Stealing = require(Config:WaitForChild("Stealing"))
 local ProfileStore = require(ServerStorage:WaitForChild("ProfileStore") :: ModuleScript)
 
@@ -38,6 +42,11 @@ export type BenchEntry = {
 	Stored: number, -- Bolts earned on this bench and not collected yet
 }
 
+export type Settings = {
+	Music: boolean,
+	Sfx: boolean,
+}
+
 export type PlayerData = {
 	DataVersion: number,
 	Bolts: number,
@@ -47,6 +56,9 @@ export type PlayerData = {
 	ShieldSeconds: number, -- new-player shield time left; nobody can steal from you while it's above 0
 	TipsDone: number, -- how many new-player tips have been finished (TipsService)
 	Rebirths: number, -- how many times the player has rebirthed (RebirthService)
+	IncomeLevel: number, -- income boost upgrades bought (0 to 3)
+	Discovered: { [string]: boolean }, -- GadgetIds the player has ever had on a bench (the Index)
+	Settings: Settings,
 	LegacyChecked: boolean, -- true once the old PlayerData_v1 save has been copied in (or there was none)
 }
 
@@ -54,7 +66,7 @@ export type PlayerData = {
 -- What a brand-new player starts with (also ProfileStore's template)
 local function defaultData(): PlayerData
 	return {
-		DataVersion = 8,
+		DataVersion = 9,
 		Bolts = STARTING_BOLTS,
 		Benches = {},
 		ExtraBenches = 0,
@@ -62,6 +74,9 @@ local function defaultData(): PlayerData
 		ShieldSeconds = Stealing.ShieldSeconds,
 		TipsDone = 0,
 		Rebirths = 0,
+		IncomeLevel = 0,
+		Discovered = {},
+		Settings = { Music = true, Sfx = true },
 		LegacyChecked = false,
 	}
 end
@@ -92,6 +107,24 @@ local function reconcile(saved: any): PlayerData
 		if typeof(saved.Rebirths) == "number" then
 			data.Rebirths = math.max(0, math.floor(saved.Rebirths))
 		end
+		if typeof(saved.IncomeLevel) == "number" then
+			data.IncomeLevel = math.clamp(math.floor(saved.IncomeLevel), 0, #Upgrades.IncomeBoostCosts)
+		end
+		if typeof(saved.Discovered) == "table" then
+			for gadgetId, found in saved.Discovered do
+				if typeof(gadgetId) == "string" and found == true then
+					data.Discovered[gadgetId] = true
+				end
+			end
+		end
+		if typeof(saved.Settings) == "table" then
+			for name in data.Settings do
+				local value = saved.Settings[name]
+				if typeof(value) == "boolean" then
+					(data.Settings :: any)[name] = value
+				end
+			end
+		end
 		if typeof(saved.ShieldSeconds) == "number" then
 			data.ShieldSeconds = math.clamp(math.floor(saved.ShieldSeconds), 0, Stealing.ShieldSeconds)
 		end
@@ -101,6 +134,7 @@ local function reconcile(saved: any): PlayerData
 				if typeof(key) == "string" and typeof(entry) == "table" and typeof(entry.GadgetId) == "string" then
 					local stored = if typeof(entry.Stored) == "number" then math.max(0, math.floor(entry.Stored)) else 0
 					data.Benches[key] = { GadgetId = entry.GadgetId, Stored = stored }
+					data.Discovered[entry.GadgetId] = true -- saves from before the Index
 				end
 			end
 		end
@@ -227,6 +261,7 @@ local function onPlayerAdded(player: Player)
 
 	profiles[player] = profile
 	createLeaderstats(player, data.Bolts, data.Rebirths)
+	DataService.SyncAttributes(player)
 	player:SetAttribute("DataLoaded", true)
 	if ProfileStore.DataStoreState ~= "Access" then
 		warn("[DataService] Saving is OFF for this test: turn on Studio access to API services to test saving.")
@@ -263,14 +298,43 @@ function DataService.SaveNow(player: Player)
 	end
 end
 
--- How much the player's gadgets earn, from their rebirths (1 if they never rebirthed)
+-- How much the player's gadgets earn: the rebirth boost times the income boost upgrade
+-- (1 for a new player)
 function DataService.GetIncomeMultiplier(player: Player): number
 	local data = DataService.GetData(player)
-	return Rebirth.MultiplierFor(if data then data.Rebirths else 0)
+	if not data then
+		return 1
+	end
+	return Rebirth.MultiplierFor(data.Rebirths) * (1 + Upgrades.IncomeBoostPerLevel * data.IncomeLevel)
+end
+
+-- Copies upgrade levels, found gadgets and settings to player attributes for the menu panels
+function DataService.SyncAttributes(player: Player)
+	local data = DataService.GetData(player)
+	if not data then
+		return
+	end
+	player:SetAttribute("ExtraBenches", data.ExtraBenches)
+	player:SetAttribute("GateLevel", data.GateLevel)
+	player:SetAttribute("IncomeLevel", data.IncomeLevel)
+	player:SetAttribute("SettingMusic", data.Settings.Music)
+	player:SetAttribute("SettingSfx", data.Settings.Sfx)
+	for gadgetId in data.Discovered do
+		player:SetAttribute(`Found_{gadgetId}`, true)
+	end
+end
+
+-- Records that the player has had this gadget (for the Index)
+function DataService.MarkDiscovered(player: Player, gadgetId: string)
+	local data = DataService.GetData(player)
+	if data and not data.Discovered[gadgetId] then
+		data.Discovered[gadgetId] = true
+		player:SetAttribute(`Found_{gadgetId}`, true)
+	end
 end
 
 -- Rebirth: Bolts back to the starting amount, no gadgets, no extra benches, one more rebirth.
--- Everything else (gate level, shield, tips) is kept. RebirthService checks the cost first;
+-- Everything else (gate level, income boost, found gadgets, shield, tips, settings) is kept. RebirthService checks the cost first;
 -- BenchService.ReloadLab clears the gadgets off the benches afterwards.
 function DataService.ResetForRebirth(player: Player): boolean
 	local data = DataService.GetData(player)
@@ -283,6 +347,7 @@ function DataService.ResetForRebirth(player: Player): boolean
 	data.Rebirths += 1
 	updateLeaderstats(player, data.Bolts)
 	updateRebirthsStat(player, data.Rebirths)
+	DataService.SyncAttributes(player)
 	return true
 end
 

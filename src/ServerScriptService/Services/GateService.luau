@@ -154,6 +154,7 @@ local function onUpgrade(player: Player, lab: Model)
 		return
 	end
 	data.GateLevel += 1
+	DataService.SyncAttributes(player)
 	refresh(lab)
 	NotifyService.Send(player, `Lock upgraded! It now lasts {lockSeconds(data.GateLevel)} seconds.`, "good")
 end
@@ -233,6 +234,16 @@ end
 -- True while the lab's gate is locked (for stealing in Stage 9)
 function GateService.IsLocked(lab: Model): boolean
 	return now() < lockedUntil(lab)
+end
+
+-- The Upgrades panel's "Better Gate" button (MenuService): same as holding F on the gate button
+function GateService.UpgradeFor(player: Player)
+	for lab in gates do
+		if lab:GetAttribute("OwnerUserId") == player.UserId then
+			onUpgrade(player, lab)
+			return
+		end
+	end
 end
 
 function GateService.Init()
