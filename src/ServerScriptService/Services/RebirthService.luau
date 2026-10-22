@@ -14,6 +14,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Rebirth = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Config"):WaitForChild("Rebirth"))
 local BenchService = require(script.Parent:WaitForChild("BenchService"))
 local DataService = require(script.Parent:WaitForChild("DataService"))
+local LeaderboardService = require(script.Parent:WaitForChild("LeaderboardService"))
 local NotifyService = require(script.Parent:WaitForChild("NotifyService"))
 local StealService = require(script.Parent:WaitForChild("StealService"))
 
@@ -63,6 +64,7 @@ local function onRebirthRequested(player: Player)
 	end
 	BenchService.ReloadLab(player)
 	DataService.SaveNow(player)
+	LeaderboardService.RequestUpdate()
 	local multiplier = Rebirth.MultiplierFor(data.Rebirths)
 	NotifyService.Send(player, `♻ Rebirth {data.Rebirths}! Your gadgets now earn x{multiplier}. Time to rebuild!`, "good")
 	for _, other in Players:GetPlayers() do

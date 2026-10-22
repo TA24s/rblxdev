@@ -465,7 +465,7 @@ upgradesButton.LayoutOrder = 1
 local indexButton = Ui.IconButton("Index", side, "📖", "Index", Color3.fromRGB(70, 150, 230), Color3.fromRGB(30, 60, 140), 72)
 indexButton.LayoutOrder = 2
 local settingsButton = Ui.IconButton("Settings", side, "⚙️", "Settings", Color3.fromRGB(60, 200, 190), Color3.fromRGB(20, 95, 110), 72)
-settingsButton.LayoutOrder = 3
+settingsButton.LayoutOrder = 4
 
 -- Green Upgrade button next to the Boing Glove
 local upgradeButton = Ui.IconButton("Upgrade", Ui.GetBottomBar(), "▲", "Upgrade", C.Green, C.GreenDark, 76)
