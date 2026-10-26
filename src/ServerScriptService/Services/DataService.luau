@@ -26,6 +26,7 @@ local Config = ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Config")
 local Rebirth = require(Config:WaitForChild("Rebirth"))
 local Upgrades = require(Config:WaitForChild("Upgrades"))
 local Stealing = require(Config:WaitForChild("Stealing"))
+local Mutations = require(Config:WaitForChild("Mutations"))
 local ProfileStore = require(ServerStorage:WaitForChild("ProfileStore") :: ModuleScript)
 
 ----- Constants -----
@@ -40,6 +41,7 @@ local RETRY_DELAY = 2 -- seconds, multiplied by the attempt number
 export type BenchEntry = {
 	GadgetId: string,
 	Stored: number, -- Bolts earned on this bench and not collected yet
+	Mutation: string?, -- "Golden", "Electrified" or "Rubber" (Config/Mutations), or nil for a plain gadget
 }
 
 export type Settings = {
@@ -66,7 +68,7 @@ export type PlayerData = {
 -- What a brand-new player starts with (also ProfileStore's template)
 local function defaultData(): PlayerData
 	return {
-		DataVersion = 9,
+		DataVersion = 10,
 		Bolts = STARTING_BOLTS,
 		Benches = {},
 		ExtraBenches = 0,
@@ -133,7 +135,8 @@ local function reconcile(saved: any): PlayerData
 			for key, entry in saved.Benches do
 				if typeof(key) == "string" and typeof(entry) == "table" and typeof(entry.GadgetId) == "string" then
 					local stored = if typeof(entry.Stored) == "number" then math.max(0, math.floor(entry.Stored)) else 0
-					data.Benches[key] = { GadgetId = entry.GadgetId, Stored = stored }
+					local mutation = if typeof(entry.Mutation) == "string" and Mutations.List[entry.Mutation] then entry.Mutation else nil
+					data.Benches[key] = { GadgetId = entry.GadgetId, Stored = stored, Mutation = mutation }
 					data.Discovered[entry.GadgetId] = true -- saves from before the Index
 				end
 			end

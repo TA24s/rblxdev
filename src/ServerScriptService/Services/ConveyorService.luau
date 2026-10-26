@@ -14,6 +14,7 @@ local ServerStorage = game:GetService("ServerStorage")
 local Config = ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Config")
 local Gadgets = require(Config:WaitForChild("Gadgets"))
 local Rarities = require(Config:WaitForChild("Rarities"))
+local Mutations = require(Config:WaitForChild("Mutations"))
 local BenchService = require(script.Parent:WaitForChild("BenchService"))
 local DataService = require(script.Parent:WaitForChild("DataService"))
 local LabService = require(script.Parent:WaitForChild("LabService"))
@@ -38,6 +39,7 @@ local PROMPT_DISTANCE = 10
 type BeltItem = {
 	model: Model,
 	gadget: Gadgets.Gadget,
+	mutation: string?, -- Config/Mutations Id, or nil for a plain gadget
 	distance: number, -- how far along PATH it has travelled
 	sold: boolean,
 }
@@ -94,8 +96,9 @@ local function cframeAt(distance: number): CFrame
 	return CFrame.new(PATH[#PATH])
 end
 
-local function createLabel(gadget: Gadgets.Gadget, parent: BasePart)
+local function createLabel(gadget: Gadgets.Gadget, mutation: string?, parent: BasePart)
 	local rarity = Rarities[gadget.Rarity]
+	local info = mutation and Mutations.List[mutation]
 	local gui = Instance.new("BillboardGui")
 	gui.Name = "GadgetLabel"
 	gui.Size = UDim2.fromOffset(170, 66)
@@ -105,8 +108,8 @@ local function createLabel(gadget: Gadgets.Gadget, parent: BasePart)
 
 	local lines = {
 		{ text = gadget.DisplayName, color = Color3.new(1, 1, 1) },
-		{ text = rarity.DisplayName, color = rarity.Color },
-		{ text = `⚙ {formatNumber(gadget.Cost)}  ·  +{formatNumber(gadget.Income)}/s`, color = Color3.fromRGB(255, 200, 40) },
+		{ text = if info then `✨ {info.DisplayName} {rarity.DisplayName} (x{info.Multiplier})` else rarity.DisplayName, color = if info then info.Color else rarity.Color },
+		{ text = `⚙ {formatNumber(gadget.Cost)}  ·  +{formatNumber(gadget.Income * Mutations.Multiplier(mutation))}/s`, color = Color3.fromRGB(255, 200, 40) },
 	}
 	for i, line in lines do
 		local label = Instance.new("TextLabel")
@@ -154,7 +157,7 @@ local function onBuy(item: BeltItem, player: Player)
 		NotifyService.Send(player, `You need ⚙ {formatNumber(gadget.Cost)} to buy the {gadget.DisplayName}.`)
 		return
 	end
-	if not BenchService.PlaceGadget(player, bench, gadget.Id) then
+	if not BenchService.PlaceGadget(player, bench, gadget.Id, item.mutation) then
 		DataService.AddBolts(player, gadget.Cost) -- give the Bolts back
 		NotifyService.Send(player, "Something went wrong placing that gadget. Your Bolts were refunded.")
 		return
@@ -163,7 +166,7 @@ local function onBuy(item: BeltItem, player: Player)
 	item.sold = true
 	removeFromBelt(item)
 	item.model:Destroy()
-	NotifyService.Send(player, `You bought the {gadget.DisplayName}! It's on a bench in your lab.`, "good")
+	NotifyService.Send(player, `You bought the {Mutations.Name(item.mutation, gadget.DisplayName)}! It's on a bench in your lab.`, "good")
 end
 
 local function spawnGadget()
@@ -180,13 +183,15 @@ local function spawnGadget()
 		return
 	end
 
-	local item: BeltItem = { model = model, gadget = gadget, distance = 0, sold = false }
+	local mutation = Mutations.Roll(rng)
+	local item: BeltItem = { model = model, gadget = gadget, mutation = mutation, distance = 0, sold = false }
+	Mutations.Apply(model, mutation)
 	model:SetAttribute("Cost", gadget.Cost) -- lets the new-player tips point at one you can afford
 
-	createLabel(gadget, base)
+	createLabel(gadget, mutation, base)
 	local prompt = Instance.new("ProximityPrompt")
-	prompt.ActionText = `Buy for ⚙ {gadget.Cost}`
-	prompt.ObjectText = gadget.DisplayName
+	prompt.ActionText = `Buy for ⚙ {formatNumber(gadget.Cost)}`
+	prompt.ObjectText = Mutations.Name(mutation, gadget.DisplayName)
 	prompt.HoldDuration = BUY_HOLD_SECONDS
 	prompt.MaxActivationDistance = PROMPT_DISTANCE
 	prompt.RequiresLineOfSight = false

@@ -19,6 +19,7 @@ local Gadgets = require(Config:WaitForChild("Gadgets"))
 local Rarities = require(Config:WaitForChild("Rarities"))
 local Upgrades = require(Config:WaitForChild("Upgrades"))
 local Stealing = require(Config:WaitForChild("Stealing"))
+local Mutations = require(Config:WaitForChild("Mutations"))
 local DataService = require(script.Parent:WaitForChild("DataService"))
 local LabService = require(script.Parent:WaitForChild("LabService"))
 local NotifyService = require(script.Parent:WaitForChild("NotifyService"))
@@ -102,8 +103,22 @@ local function unlockCost(bench: BasePart): number?
 	return Upgrades.BenchUnlockCosts[benchIndex(bench) - Upgrades.BaseBenches]
 end
 
-local function sellPrice(gadget: Gadgets.Gadget): number
-	return math.floor(gadget.Cost * Upgrades.SellRefund)
+local function sellPrice(gadget: Gadgets.Gadget, mutation: string?): number
+	return math.floor(gadget.Cost * Upgrades.SellRefund * Mutations.Multiplier(mutation))
+end
+
+-- Bolts per second a gadget earns before the player's own boosts (a mutation multiplies it)
+local function baseIncome(gadget: Gadgets.Gadget, mutation: string?): number
+	return gadget.Income * Mutations.Multiplier(mutation)
+end
+
+-- The name on a bench label, in the mutation's colour if it has one
+local function nameStyle(gadget: Gadgets.Gadget, mutation: string?): (string, Color3)
+	local info = mutation and Mutations.List[mutation]
+	if info then
+		return `✨ {Mutations.Name(mutation, gadget.DisplayName)}`, info.Color
+	end
+	return gadget.DisplayName, Rarities[gadget.Rarity].Color
 end
 
 -- The lab a bench belongs to (Lab > Benches > Bench)
@@ -112,16 +127,17 @@ local function labOf(bench: BasePart): Instance?
 	return folder and folder.Parent
 end
 
-local function createLabel(bench: BasePart, gadget: Gadgets.Gadget)
+local function createLabel(bench: BasePart, gadget: Gadgets.Gadget, mutation: string?)
 	local gui = Instance.new("BillboardGui")
 	gui.Name = LABEL_NAME
 	gui.Size = UDim2.fromOffset(160, 70)
 	gui.StudsOffsetWorldSpace = Vector3.new(0, 7.5, 0)
 	gui.MaxDistance = 50
 
+	local name, nameColor = nameStyle(gadget, mutation)
 	local lines = {
-		{ name = "GadgetName", text = gadget.DisplayName, color = Rarities[gadget.Rarity].Color },
-		{ name = "Income", text = `+{formatNumber(gadget.Income)}/s`, color = Color3.fromRGB(140, 255, 140) },
+		{ name = "GadgetName", text = name, color = nameColor },
+		{ name = "Income", text = `+{formatNumber(baseIncome(gadget, mutation))}/s`, color = Color3.fromRGB(140, 255, 140) },
 		{ name = "Stored", text = "⚙ 0", color = BOLT_COLOR },
 	}
 	for i, line in lines do
@@ -149,7 +165,7 @@ local function setStoredText(bench: BasePart, stored: number)
 end
 
 -- Builds the gadget model and label on a bench (visuals only; the data is changed by the caller)
-local function showOnBench(player: Player, bench: BasePart, gadget: Gadgets.Gadget, stored: number): boolean
+local function showOnBench(player: Player, bench: BasePart, gadget: Gadgets.Gadget, stored: number, mutation: string?): boolean
 	local lab = readyLabs[player] or LabService.GetLab(player)
 	local template = modelsFolder:FindFirstChild(gadget.Id)
 	if not (lab and template and template:IsA("Model")) then
@@ -159,9 +175,10 @@ local function showOnBench(player: Player, bench: BasePart, gadget: Gadgets.Gadg
 	local model = template:Clone()
 	model:SetAttribute("OwnerUserId", player.UserId)
 	model:SetAttribute("BenchIndex", bench:GetAttribute("BenchIndex"))
+	Mutations.Apply(model, mutation)
 	model:PivotTo(bench.CFrame * CFrame.new(0, bench.Size.Y / 2 + 0.1, 0))
 	model.Parent = getPlacedFolder(lab)
-	createLabel(bench, gadget)
+	createLabel(bench, gadget, mutation)
 	setStoredText(bench, stored)
 	return true
 end
@@ -223,15 +240,15 @@ local function refreshLab(lab: Model, data: DataService.PlayerData?)
 			local entry = data and data.Benches[benchKey(bench)]
 			local gadget = entry and Gadgets[entry.GadgetId]
 			sellPrompt.Enabled = entry ~= nil
-			sellPrompt.ActionText = if gadget then `Sell for ⚙ {formatNumber(sellPrice(gadget))}` else "Sell"
-			sellPrompt.ObjectText = if gadget then gadget.DisplayName else ""
+			sellPrompt.ActionText = if gadget then `Sell for ⚙ {formatNumber(sellPrice(gadget, entry and entry.Mutation))}` else "Sell"
+			sellPrompt.ObjectText = if gadget then Mutations.Name(entry and entry.Mutation, gadget.DisplayName) else ""
 		end
 		local stealPrompt = stealPrompts[bench]
 		if stealPrompt then
 			local entry = data and data.Benches[benchKey(bench)]
 			local gadget = entry and Gadgets[entry.GadgetId]
 			stealPrompt.Enabled = gadget ~= nil and not carriedModels[bench]
-			stealPrompt.ObjectText = if gadget then gadget.DisplayName else ""
+			stealPrompt.ObjectText = if gadget then Mutations.Name(entry and entry.Mutation, gadget.DisplayName) else ""
 			stealPrompt.HoldDuration = if gadget then Stealing.HoldSeconds[gadget.Rarity] or 1 else 1
 		end
 	end
@@ -259,7 +276,7 @@ local function showSavedGadgets(player: Player, lab: Model, data: DataService.Pl
 		local entry = data.Benches[benchKey(bench)]
 		local gadget = entry and Gadgets[entry.GadgetId]
 		if entry and gadget then
-			showOnBench(player, bench, gadget, entry.Stored)
+			showOnBench(player, bench, gadget, entry.Stored, entry.Mutation)
 		elseif entry then
 			warn(`[BenchService] Unknown gadget {entry.GadgetId} on bench {benchKey(bench)} for {player.Name}`)
 		end
@@ -309,12 +326,13 @@ local function earnIncome()
 			local gadget = entry and Gadgets[entry.GadgetId]
 			if entry and gadget then
 				-- Bolts are whole numbers, so any part-Bolt from the boost waits for the next second
-				local earned = gadget.Income * multiplier * INCOME_INTERVAL + (leftover[bench] or 0)
+				local income = baseIncome(gadget, entry.Mutation) * multiplier
+				local earned = income * INCOME_INTERVAL + (leftover[bench] or 0)
 				local whole = math.floor(earned)
 				leftover[bench] = earned - whole
 				entry.Stored += whole
 				setStoredText(bench, entry.Stored)
-				total += gadget.Income * multiplier
+				total += income
 			end
 		end
 		-- The player list shows everyone's Bolts per second (DataService makes the value)
@@ -411,7 +429,7 @@ local function onSell(player: Player, bench: BasePart)
 		return
 	end
 	local gadget = Gadgets[entry.GadgetId]
-	local price = if gadget then sellPrice(gadget) else 0
+	local price = if gadget then sellPrice(gadget, entry.Mutation) else 0
 	local payout = price + entry.Stored -- the Bolts piled up on the bench come too
 	data.Benches[key] = nil
 
@@ -428,7 +446,7 @@ local function onSell(player: Player, bench: BasePart)
 		DataService.AddBolts(player, payout)
 	end
 	refreshLab(lab, data)
-	local name = if gadget then gadget.DisplayName else "gadget"
+	local name = if gadget then Mutations.Name(entry.Mutation, gadget.DisplayName) else "gadget"
 	NotifyService.Send(player, `Sold the {name} for ⚙ {formatNumber(payout)}.`)
 end
 
@@ -522,7 +540,8 @@ function BenchService.FindFreeBench(player: Player, skipVault: boolean?): BasePa
 end
 
 -- Puts a new gadget on an empty bench and records it in the player's data. Returns true if placed.
-function BenchService.PlaceGadget(player: Player, bench: BasePart, gadgetId: string): boolean
+-- `mutation` is a Config/Mutations Id, or nil for a plain gadget.
+function BenchService.PlaceGadget(player: Player, bench: BasePart, gadgetId: string, mutation: string?): boolean
 	local data = DataService.GetData(player)
 	local gadget = Gadgets[gadgetId]
 	local lab = readyLabs[player]
@@ -532,10 +551,13 @@ function BenchService.PlaceGadget(player: Player, bench: BasePart, gadgetId: str
 	if benchIndex(bench) > unlockedCount(data) then
 		return false
 	end
-	if not showOnBench(player, bench, gadget, 0) then
+	if mutation and not Mutations.List[mutation] then
+		mutation = nil
+	end
+	if not showOnBench(player, bench, gadget, 0, mutation) then
 		return false
 	end
-	data.Benches[benchKey(bench)] = { GadgetId = gadgetId, Stored = 0 }
+	data.Benches[benchKey(bench)] = { GadgetId = gadgetId, Stored = 0, Mutation = mutation }
 	DataService.MarkDiscovered(player, gadgetId)
 	refreshLab(lab, data)
 	return true
@@ -591,20 +613,21 @@ function BenchService.SetCarried(owner: Player, bench: BasePart, carried: boolea
 	elseif not carried and carriedModels[bench] then
 		carriedModels[bench].Parent = getPlacedFolder(lab)
 		carriedModels[bench] = nil
-		setNameText(bench, if gadget then gadget.DisplayName else "")
+		setNameText(bench, if gadget then (nameStyle(gadget, entry and entry.Mutation)) else "")
 	end
 	refreshLab(lab, DataService.GetData(owner))
 end
 
 -- Finishes a theft: takes the carried gadget out of the owner's data and pays the owner the
--- Bolts that had piled up on it. Returns the gadget's Id, or nil if there was nothing to take.
-function BenchService.TakeCarried(owner: Player, bench: BasePart): string?
+-- Bolts that had piled up on it. Returns the gadget's Id and mutation, or nil if there was nothing
+-- to take.
+function BenchService.TakeCarried(owner: Player, bench: BasePart): (string?, string?)
 	local lab = readyLabs[owner]
 	local data = DataService.GetData(owner)
 	local key = benchKey(bench)
 	local entry = data and data.Benches[key]
 	if not (lab and data and entry and carriedModels[bench]) then
-		return nil
+		return nil, nil
 	end
 	data.Benches[key] = nil
 	carriedModels[bench]:Destroy()
@@ -617,7 +640,7 @@ function BenchService.TakeCarried(owner: Player, bench: BasePart): string?
 		DataService.AddBolts(owner, entry.Stored)
 	end
 	refreshLab(lab, data)
-	return entry.GadgetId
+	return entry.GadgetId, entry.Mutation
 end
 
 -- After a rebirth (DataService.ResetForRebirth): clears the player's benches and shows their

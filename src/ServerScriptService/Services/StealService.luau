@@ -23,6 +23,7 @@ local ServerStorage = game:GetService("ServerStorage")
 local Config = ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Config")
 local Gadgets = require(Config:WaitForChild("Gadgets"))
 local Stealing = require(Config:WaitForChild("Stealing"))
+local Mutations = require(Config:WaitForChild("Mutations"))
 local BenchService = require(script.Parent:WaitForChild("BenchService"))
 local GateService = require(script.Parent:WaitForChild("GateService"))
 local LabService = require(script.Parent:WaitForChild("LabService"))
@@ -50,6 +51,7 @@ type Carry = {
 	npc: NpcSource?,
 	bench: BasePart,
 	gadget: Gadgets.Gadget,
+	mutation: string?, -- Config/Mutations Id, or nil for a plain gadget
 	deadline: number, -- os.clock() time the carry runs out
 	visual: Model, -- the copy over the thief's head
 	timerLabel: TextLabel,
@@ -76,7 +78,7 @@ local function labOf(bench: BasePart): Instance?
 end
 
 -- A copy of the gadget, welded above the thief's head
-local function buildVisual(gadget: Gadgets.Gadget, head: BasePart): (Model?, TextLabel?)
+local function buildVisual(gadget: Gadgets.Gadget, mutation: string?, head: BasePart): (Model?, TextLabel?)
 	local template = modelsFolder:FindFirstChild(gadget.Id)
 	if not (template and template:IsA("Model")) then
 		return nil, nil
@@ -87,6 +89,7 @@ local function buildVisual(gadget: Gadgets.Gadget, head: BasePart): (Model?, Tex
 	for _, tag in CollectionService:GetTags(model) do
 		model:RemoveTag(tag)
 	end
+	Mutations.Apply(model, mutation)
 	local _, size = model:GetBoundingBox()
 	model:PivotTo(head.CFrame * CFrame.new(0, head.Size.Y / 2 + size.Y / 2 + 0.75, 0))
 	for _, part in model:GetDescendants() do
@@ -206,7 +209,7 @@ local function deliver(thief: Player)
 		return
 	end
 	local owner = carry.owner :: Player
-	local name = carry.gadget.DisplayName
+	local name = Mutations.Name(carry.mutation, carry.gadget.DisplayName)
 	if ProtectionService.IsVictimProtected(owner) then
 		-- Someone else robbed this lab first; it's protected now, so this gadget goes home
 		cancelCarry(thief, `That lab was just robbed by someone else, so the {name} went back.`, `Your {name} came back!`)
@@ -218,16 +221,16 @@ local function deliver(thief: Player)
 		return
 	end
 	local bench = carry.bench
-	local gadgetId = BenchService.TakeCarried(owner, bench)
+	local gadgetId, mutation = BenchService.TakeCarried(owner, bench)
 	if not gadgetId then
 		cancelCarry(thief, `The {name} went back to its owner.`)
 		return
 	end
 	endCarry(thief, true)
-	if not BenchService.PlaceGadget(thief, freeBench, gadgetId) then
+	if not BenchService.PlaceGadget(thief, freeBench, gadgetId, mutation) then
 		-- Shouldn't happen (a free bench was checked just above), but never let a gadget vanish
 		warn(`[StealService] Couldn't place stolen {gadgetId} for {thief.Name}; returning it`)
-		BenchService.PlaceGadget(owner, bench, gadgetId)
+		BenchService.PlaceGadget(owner, bench, gadgetId, mutation)
 		NotifyService.Send(thief, `Something went wrong, so the {name} went back.`)
 		return
 	end
@@ -267,14 +270,14 @@ end
 
 -- Puts the gadget over the thief's head and starts the countdown. Returns false if the thief's
 -- character isn't ready. `owner` is nil for an NPC steal (then `npc` says where it goes back to).
-local function beginCarry(thief: Player, owner: Player?, npc: NpcSource?, bench: BasePart, gadget: Gadgets.Gadget): boolean
+local function beginCarry(thief: Player, owner: Player?, npc: NpcSource?, bench: BasePart, gadget: Gadgets.Gadget, mutation: string?): boolean
 	local character = thief.Character
 	local humanoid = character and character:FindFirstChildOfClass("Humanoid")
 	local head = character and character:FindFirstChild("Head")
 	if not (character and humanoid and humanoid.Health > 0 and head and head:IsA("BasePart")) then
 		return false
 	end
-	local visual, timerLabel = buildVisual(gadget, head)
+	local visual, timerLabel = buildVisual(gadget, mutation, head)
 	if not (visual and timerLabel) then
 		warn(`[StealService] No model for {gadget.Id}; steal cancelled`)
 		return false
@@ -285,6 +288,7 @@ local function beginCarry(thief: Player, owner: Player?, npc: NpcSource?, bench:
 		npc = npc,
 		bench = bench,
 		gadget = gadget,
+		mutation = mutation,
 		deadline = os.clock() + Stealing.CarrySeconds,
 		visual = visual,
 		timerLabel = timerLabel,
@@ -300,12 +304,13 @@ local function beginCarry(thief: Player, owner: Player?, npc: NpcSource?, bench:
 	humanoid.JumpHeight = Stealing.CarryJumpHeight
 	visual.Parent = character
 
-	local backMessage = if owner then `Your {gadget.DisplayName} came back!` else nil
+	local name = Mutations.Name(mutation, gadget.DisplayName)
+	local backMessage = if owner then `Your {name} came back!` else nil
 	table.insert(carry.connections, humanoid.Died:Connect(function()
-		cancelCarry(thief, `You dropped the {gadget.DisplayName}!`, backMessage)
+		cancelCarry(thief, `You dropped the {name}!`, backMessage)
 	end))
 	table.insert(carry.connections, thief.CharacterRemoving:Connect(function()
-		cancelCarry(thief, `You dropped the {gadget.DisplayName}!`, backMessage)
+		cancelCarry(thief, `You dropped the {name}!`, backMessage)
 	end))
 	return true
 end
@@ -352,14 +357,14 @@ local function onStealRequested(thief: Player, bench: BasePart)
 		NotifyService.Send(thief, "You need a free bench at home (not the Vault) to steal a gadget.")
 		return
 	end
-	if not beginCarry(thief, owner, nil, bench, gadget) then
+	if not beginCarry(thief, owner, nil, bench, gadget, entry and entry.Mutation) then
 		return
 	end
 	BenchService.SetCarried(owner, bench, true)
 	ProtectionService.OnStealStarted(thief)
 
 	NotifyService.Send(thief, `Got it! Run to your lab's dock within {Stealing.CarrySeconds}s!`)
-	NotifyService.Send(owner, `🚨 {thief.DisplayName} is stealing your {gadget.DisplayName}!`, "alarm")
+	NotifyService.Send(owner, `🚨 {thief.DisplayName} is stealing your {Mutations.Name(entry and entry.Mutation, gadget.DisplayName)}!`, "alarm")
 end
 
 -- The thief stepped on a Receiving Dock: deliver if it's their own lab's dock
