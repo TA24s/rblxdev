@@ -53,6 +53,13 @@ local rng = Random.new()
 local ConveyorService = {}
 
 ----- Private Functions -----
+-- 1234567 -> "1,234,567"
+local function formatNumber(n: number): string
+	local text = tostring(math.floor(n))
+	local formatted = text:reverse():gsub("(%d%d%d)", "%1,"):reverse()
+	return (formatted:gsub("^,", ""))
+end
+
 -- Pick a rarity by its ConveyorWeight (only rarities that have gadgets), then a gadget of that rarity
 local function pickGadget(): Gadgets.Gadget?
 	local byRarity: { [string]: { Gadgets.Gadget } } = {}
@@ -99,7 +106,7 @@ local function createLabel(gadget: Gadgets.Gadget, parent: BasePart)
 	local lines = {
 		{ text = gadget.DisplayName, color = Color3.new(1, 1, 1) },
 		{ text = rarity.DisplayName, color = rarity.Color },
-		{ text = `⚙ {gadget.Cost}  ·  +{gadget.Income}/s`, color = Color3.fromRGB(255, 200, 40) },
+		{ text = `⚙ {formatNumber(gadget.Cost)}  ·  +{formatNumber(gadget.Income)}/s`, color = Color3.fromRGB(255, 200, 40) },
 	}
 	for i, line in lines do
 		local label = Instance.new("TextLabel")
@@ -144,7 +151,7 @@ local function onBuy(item: BeltItem, player: Player)
 	end
 	-- SpendBolts checks the player can afford it, so Bolts can never go below zero
 	if not DataService.SpendBolts(player, gadget.Cost) then
-		NotifyService.Send(player, `You need ⚙ {gadget.Cost} to buy the {gadget.DisplayName}.`)
+		NotifyService.Send(player, `You need ⚙ {formatNumber(gadget.Cost)} to buy the {gadget.DisplayName}.`)
 		return
 	end
 	if not BenchService.PlaceGadget(player, bench, gadget.Id) then

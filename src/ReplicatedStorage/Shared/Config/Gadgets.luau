@@ -20,7 +20,10 @@ local Gadgets: { [string]: Gadget } = {
 	CatPoweredWifi = { Id = "CatPoweredWifi", DisplayName = "Cat-Powered Wi-Fi", Rarity = "Rare", Cost = 4000, Income = 30 },
 	SelfSlappingAlarmClock = { Id = "SelfSlappingAlarmClock", DisplayName = "Self-Slapping Alarm Clock", Rarity = "Rare", Cost = 9000, Income = 60 },
 	InflatableAnchor = { Id = "InflatableAnchor", DisplayName = "Inflatable Anchor", Rarity = "Epic", Cost = 25000, Income = 140 },
+	WeatherRemote = { Id = "WeatherRemote", DisplayName = "Weather Remote", Rarity = "Epic", Cost = 60000, Income = 300 },
 	PocketVolcano = { Id = "PocketVolcano", DisplayName = "Pocket Volcano", Rarity = "Legendary", Cost = 180000, Income = 800 },
+	GravityToggle = { Id = "GravityToggle", DisplayName = "Gravity Toggle", Rarity = "Mythic", Cost = 600000, Income = 2400 },
+	DoEverythingMachine = { Id = "DoEverythingMachine", DisplayName = "The Do-Everything Machine", Rarity = "Forbidden", Cost = 2500000, Income = 9000 },
 }
 
 return Gadgets
