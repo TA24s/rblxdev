@@ -23,6 +23,7 @@ local Mutations = require(Config:WaitForChild("Mutations"))
 local DataService = require(script.Parent:WaitForChild("DataService"))
 local LabService = require(script.Parent:WaitForChild("LabService"))
 local NotifyService = require(script.Parent:WaitForChild("NotifyService"))
+local EventService = require(script.Parent:WaitForChild("EventService"))
 
 ----- Constants -----
 local INCOME_INTERVAL = 1 -- seconds
@@ -319,7 +320,8 @@ local function earnIncome()
 		if not data then
 			continue
 		end
-		local multiplier = DataService.GetIncomeMultiplier(player)
+		-- Rebirths and boosts, times a Double Bolts event if one is running
+		local multiplier = DataService.GetIncomeMultiplier(player) * EventService.IncomeMultiplier()
 		local total = 0
 		for _, bench in getBenches(lab) do
 			local entry = data.Benches[benchKey(bench)]

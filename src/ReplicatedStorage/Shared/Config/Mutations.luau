@@ -26,15 +26,16 @@ local Mutations = {
 	Order = { "Electrified", "Golden", "Rubber" },
 }
 
--- A random mutation Id, or nil for a plain gadget (most of the time)
-function Mutations.Roll(rng: Random): string?
+-- A random mutation Id, or nil for a plain gadget (most of the time). `boost` multiplies every
+-- chance (a Mutation Storm event uses 4).
+function Mutations.Roll(rng: Random, boost: number?): string?
 	local roll = rng:NextNumber()
 	for _, id in Mutations.Order do
-		local mutation = Mutations.List[id]
-		if roll < mutation.Chance then
+		local chance = Mutations.List[id].Chance * (boost or 1)
+		if roll < chance then
 			return id
 		end
-		roll -= mutation.Chance
+		roll -= chance
 	end
 	return nil
 end

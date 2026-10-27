@@ -19,6 +19,8 @@ local BenchService = require(script.Parent:WaitForChild("BenchService"))
 local DataService = require(script.Parent:WaitForChild("DataService"))
 local LabService = require(script.Parent:WaitForChild("LabService"))
 local NotifyService = require(script.Parent:WaitForChild("NotifyService"))
+local EventService = require(script.Parent:WaitForChild("EventService"))
+local Events = require(Config:WaitForChild("Events"))
 
 ----- Constants -----
 local SPAWN_INTERVAL = 3 -- seconds between new gadgets
@@ -62,20 +64,25 @@ local function formatNumber(n: number): string
 	return (formatted:gsub("^,", ""))
 end
 
--- Pick a rarity by its ConveyorWeight (only rarities that have gadgets), then a gadget of that rarity
+-- Pick a rarity by its ConveyorWeight (only rarities that have gadgets), then a gadget of that rarity.
+-- A Gadget Rush event makes Rare and rarer gadgets more common.
 local function pickGadget(): Gadgets.Gadget?
 	local byRarity: { [string]: { Gadgets.Gadget } } = {}
 	for _, gadget in Gadgets do
 		byRarity[gadget.Rarity] = byRarity[gadget.Rarity] or {}
 		table.insert(byRarity[gadget.Rarity], gadget)
 	end
+	local boost = EventService.RareBoost()
+	local function weightOf(rarityId: string): number
+		return Rarities[rarityId].ConveyorWeight * (if Events.RareRarities[rarityId] then boost else 1)
+	end
 	local totalWeight = 0
 	for rarityId in byRarity do
-		totalWeight += Rarities[rarityId].ConveyorWeight
+		totalWeight += weightOf(rarityId)
 	end
 	local roll = rng:NextNumber() * totalWeight
 	for rarityId, list in byRarity do
-		roll -= Rarities[rarityId].ConveyorWeight
+		roll -= weightOf(rarityId)
 		if roll <= 0 then
 			return list[rng:NextInteger(1, #list)]
 		end
@@ -183,7 +190,7 @@ local function spawnGadget()
 		return
 	end
 
-	local mutation = Mutations.Roll(rng)
+	local mutation = Mutations.Roll(rng, EventService.MutationBoost())
 	local item: BeltItem = { model = model, gadget = gadget, mutation = mutation, distance = 0, sold = false }
 	Mutations.Apply(model, mutation)
 	model:SetAttribute("Cost", gadget.Cost) -- lets the new-player tips point at one you can afford
@@ -234,7 +241,7 @@ function ConveyorService.Init()
 	task.spawn(function()
 		while true do
 			spawnGadget()
-			task.wait(SPAWN_INTERVAL)
+			task.wait(SPAWN_INTERVAL / EventService.SpawnSpeed()) -- a Gadget Rush spawns them faster
 		end
 	end)
 end
