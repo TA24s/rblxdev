@@ -15,6 +15,7 @@ local Config = ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Config")
 local Upgrades = require(Config:WaitForChild("Upgrades"))
 local DataService = require(script.Parent:WaitForChild("DataService"))
 local NotifyService = require(script.Parent:WaitForChild("NotifyService"))
+local TrackingService = require(script.Parent:WaitForChild("TrackingService"))
 
 ----- Constants -----
 local REFRESH_INTERVAL = 0.5 -- seconds between countdown updates
@@ -154,6 +155,7 @@ local function onUpgrade(player: Player, lab: Model)
 		return
 	end
 	data.GateLevel += 1
+	TrackingService.Bolts(player, "Sink", cost, "Shop", `GateLevel{data.GateLevel}`)
 	DataService.SyncAttributes(player)
 	refresh(lab)
 	NotifyService.Send(player, `Lock upgraded! It now lasts {lockSeconds(data.GateLevel)} seconds.`, "good")

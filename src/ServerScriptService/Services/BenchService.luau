@@ -24,6 +24,7 @@ local DataService = require(script.Parent:WaitForChild("DataService"))
 local LabService = require(script.Parent:WaitForChild("LabService"))
 local NotifyService = require(script.Parent:WaitForChild("NotifyService"))
 local EventService = require(script.Parent:WaitForChild("EventService"))
+local TrackingService = require(script.Parent:WaitForChild("TrackingService"))
 
 ----- Constants -----
 local INCOME_INTERVAL = 1 -- seconds
@@ -370,6 +371,7 @@ local function onBenchTouched(bench: BasePart, hit: BasePart)
 		entry.Stored = 0
 		if DataService.AddBolts(player, amount) then
 			setStoredText(bench, 0)
+			TrackingService.Collected(player, amount)
 		else
 			entry.Stored = amount -- couldn't pay out; keep it on the bench
 		end
@@ -400,6 +402,7 @@ local function unlockNext(player: Player, lab: Model, data: DataService.PlayerDa
 		return
 	end
 	data.ExtraBenches += 1
+	TrackingService.Bolts(player, "Sink", cost, "Shop", `Bench{index}`)
 	refreshLab(lab, data)
 	DataService.SyncAttributes(player)
 	NotifyService.Send(player, `Bench {index} unlocked! Buy a gadget to put on it.`, "good")
@@ -446,6 +449,7 @@ local function onSell(player: Player, bench: BasePart)
 	end
 	if payout > 0 then
 		DataService.AddBolts(player, payout)
+		TrackingService.Bolts(player, "Source", payout, "Gameplay", `Sell:{entry.GadgetId}`)
 	end
 	refreshLab(lab, data)
 	local name = if gadget then Mutations.Name(entry.Mutation, gadget.DisplayName) else "gadget"
@@ -562,6 +566,7 @@ function BenchService.PlaceGadget(player: Player, bench: BasePart, gadgetId: str
 	data.Benches[benchKey(bench)] = { GadgetId = gadgetId, Stored = 0, Mutation = mutation }
 	DataService.MarkDiscovered(player, gadgetId)
 	refreshLab(lab, data)
+	TrackingService.GadgetPlaced(player, gadgetId)
 	return true
 end
 

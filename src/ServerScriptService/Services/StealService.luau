@@ -30,6 +30,7 @@ local LabService = require(script.Parent:WaitForChild("LabService"))
 local DataService = require(script.Parent:WaitForChild("DataService"))
 local NotifyService = require(script.Parent:WaitForChild("NotifyService"))
 local ProtectionService = require(script.Parent:WaitForChild("ProtectionService"))
+local TrackingService = require(script.Parent:WaitForChild("TrackingService"))
 
 ----- Constants -----
 local TIMER_INTERVAL = 0.25 -- seconds between countdown updates
@@ -196,6 +197,8 @@ local function deliverFromNpc(thief: Player, carry: Carry, npc: NpcSource)
 		return
 	end
 	NotifyService.Send(thief, `You stole the {name} from {npc.name}! 🎉`, "good")
+	TrackingService.Custom(thief, "StealDelivered", 1, { carry.gadget.Id, carry.gadget.Rarity, "Grudge" })
+	TrackingService.Step(thief, "FirstSteal")
 	DataService.SaveNow(thief)
 end
 
@@ -236,6 +239,11 @@ local function deliver(thief: Player)
 	end
 	NotifyService.Send(thief, `You stole the {name}! 🎉`, "good")
 	local insurance = ProtectionService.OnStolen(thief, owner, gadgetId)
+	local fields = TrackingService.GadgetFields(gadgetId, mutation)
+	TrackingService.Custom(thief, "StealDelivered", 1, { fields[1], fields[2], "Player" })
+	TrackingService.Step(thief, "FirstSteal")
+	TrackingService.Custom(owner, "GotStolenFrom", 1, fields)
+	TrackingService.Bolts(owner, "Source", insurance, "Gameplay", "Insurance")
 	DataService.SaveNow(thief)
 	DataService.SaveNow(owner)
 	if owner.Parent == Players then
@@ -362,6 +370,7 @@ local function onStealRequested(thief: Player, bench: BasePart)
 	end
 	BenchService.SetCarried(owner, bench, true)
 	ProtectionService.OnStealStarted(thief)
+	TrackingService.Custom(thief, "StealStarted", 1, { gadget.Id, gadget.Rarity, "Player" })
 
 	NotifyService.Send(thief, `Got it! Run to your lab's dock within {Stealing.CarrySeconds}s!`)
 	NotifyService.Send(owner, `🚨 {thief.DisplayName} is stealing your {Mutations.Name(entry and entry.Mutation, gadget.DisplayName)}!`, "alarm")
@@ -427,6 +436,7 @@ function StealService.StartNpcSteal(thief: Player, bench: BasePart, prompt: Prox
 	if not beginCarry(thief, nil, npc, bench, gadget) then
 		return false
 	end
+	TrackingService.Custom(thief, "StealStarted", 1, { gadget.Id, gadget.Rarity, "Grudge" })
 	NotifyService.Send(thief, `Got it! Run to your lab's dock within {Stealing.CarrySeconds}s!`)
 	return true
 end

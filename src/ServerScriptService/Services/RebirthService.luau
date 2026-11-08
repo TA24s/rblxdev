@@ -17,6 +17,7 @@ local DataService = require(script.Parent:WaitForChild("DataService"))
 local LeaderboardService = require(script.Parent:WaitForChild("LeaderboardService"))
 local NotifyService = require(script.Parent:WaitForChild("NotifyService"))
 local StealService = require(script.Parent:WaitForChild("StealService"))
+local TrackingService = require(script.Parent:WaitForChild("TrackingService"))
 
 ----- Constants -----
 local MIN_SECONDS_BETWEEN = 2 -- ignore repeated clicks
@@ -65,6 +66,7 @@ local function onRebirthRequested(player: Player)
 	BenchService.ReloadLab(player)
 	DataService.SaveNow(player)
 	LeaderboardService.RequestUpdate()
+	TrackingService.Custom(player, "Rebirth", data.Rebirths)
 	local multiplier = Rebirth.MultiplierFor(data.Rebirths)
 	NotifyService.Send(player, `♻ Rebirth {data.Rebirths}! Your gadgets now earn x{multiplier}. Time to rebuild!`, "good")
 	for _, other in Players:GetPlayers() do

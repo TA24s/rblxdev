@@ -20,6 +20,7 @@ local DataService = require(script.Parent:WaitForChild("DataService"))
 local LabService = require(script.Parent:WaitForChild("LabService"))
 local NotifyService = require(script.Parent:WaitForChild("NotifyService"))
 local EventService = require(script.Parent:WaitForChild("EventService"))
+local TrackingService = require(script.Parent:WaitForChild("TrackingService"))
 local Events = require(Config:WaitForChild("Events"))
 
 ----- Constants -----
@@ -172,6 +173,9 @@ local function onBuy(item: BeltItem, player: Player)
 
 	item.sold = true
 	removeFromBelt(item)
+	TrackingService.Bolts(player, "Sink", gadget.Cost, "Shop", gadget.Id)
+	TrackingService.Custom(player, "GadgetBought", gadget.Cost, TrackingService.GadgetFields(gadget.Id, item.mutation))
+	TrackingService.Step(player, "FirstBuy")
 	item.model:Destroy()
 	NotifyService.Send(player, `You bought the {Mutations.Name(item.mutation, gadget.DisplayName)}! It's on a bench in your lab.`, "good")
 end
