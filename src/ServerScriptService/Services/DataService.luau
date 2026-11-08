@@ -27,6 +27,7 @@ local Rebirth = require(Config:WaitForChild("Rebirth"))
 local Upgrades = require(Config:WaitForChild("Upgrades"))
 local Stealing = require(Config:WaitForChild("Stealing"))
 local Mutations = require(Config:WaitForChild("Mutations"))
+local Shop = require(Config:WaitForChild("Shop"))
 local ProfileStore = require(ServerStorage:WaitForChild("ProfileStore") :: ModuleScript)
 
 ----- Constants -----
@@ -62,13 +63,14 @@ export type PlayerData = {
 	Discovered: { [string]: boolean }, -- GadgetIds the player has ever had on a bench (the Index)
 	Settings: Settings,
 	LegacyChecked: boolean, -- true once the old PlayerData_v1 save has been copied in (or there was none)
+	Theme: string, -- the lab theme the player has switched on (Config/Shop.Themes Id), or "" for none
 }
 
 ----- Variables -----
 -- What a brand-new player starts with (also ProfileStore's template)
 local function defaultData(): PlayerData
 	return {
-		DataVersion = 10,
+		DataVersion = 11,
 		Bolts = STARTING_BOLTS,
 		Benches = {},
 		ExtraBenches = 0,
@@ -79,6 +81,7 @@ local function defaultData(): PlayerData
 		IncomeLevel = 0,
 		Discovered = {},
 		Settings = { Music = true, Sfx = true },
+		Theme = "",
 		LegacyChecked = false,
 	}
 end
@@ -126,6 +129,9 @@ local function reconcile(saved: any): PlayerData
 					(data.Settings :: any)[name] = value
 				end
 			end
+		end
+		if typeof(saved.Theme) == "string" and Shop.Themes[saved.Theme] then
+			data.Theme = saved.Theme
 		end
 		if typeof(saved.ShieldSeconds) == "number" then
 			data.ShieldSeconds = math.clamp(math.floor(saved.ShieldSeconds), 0, Stealing.ShieldSeconds)

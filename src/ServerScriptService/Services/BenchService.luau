@@ -650,6 +650,35 @@ function BenchService.TakeCarried(owner: Player, bench: BasePart): (string?, str
 	return entry.GadgetId, entry.Mutation
 end
 
+-- Collects the Bolts piled up on all the player's benches at once (the Lab Assistant game pass).
+-- Returns how many Bolts were collected.
+function BenchService.CollectAll(player: Player): number
+	local lab = readyLabs[player]
+	local data = DataService.GetData(player)
+	if not (lab and data) then
+		return 0
+	end
+	local total = 0
+	for _, bench in getBenches(lab) do
+		local entry = data.Benches[benchKey(bench)]
+		-- A gadget being carried off isn't on the bench, so its Bolts stay put
+		if entry and entry.Stored > 0 and not carriedModels[bench] then
+			local amount = entry.Stored
+			entry.Stored = 0
+			if DataService.AddBolts(player, amount) then
+				setStoredText(bench, 0)
+				total += amount
+			else
+				entry.Stored = amount
+			end
+		end
+	end
+	if total > 0 then
+		TrackingService.Collected(player, total)
+	end
+	return total
+end
+
 -- After a rebirth (DataService.ResetForRebirth): clears the player's benches and shows their
 -- lab as it is now (no gadgets, only the starting benches unlocked)
 function BenchService.ReloadLab(player: Player)
