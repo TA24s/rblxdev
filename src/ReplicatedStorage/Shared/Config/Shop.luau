@@ -37,7 +37,7 @@ local Shop = {
 		DisplayName = "Lab Assistant",
 		Icon = "🤖",
 		Description = "A little robot that collects the Bolts from all your benches for you.",
-		GamePassId = 0,
+		GamePassId = 2074402573,
 	} :: Pass,
 	AssistantCollectSeconds = 10, -- how often the assistant empties your benches
 
@@ -47,7 +47,7 @@ local Shop = {
 			DisplayName = "Volcano Lair",
 			Icon = "🌋",
 			Description = "Reskin your lab with black rock walls and a glowing lava floor.",
-			GamePassId = 0,
+			GamePassId = 2075962477,
 			Walls = { Color = Color3.fromRGB(45, 35, 35), Material = Enum.Material.Basalt },
 			Floor = { Color = Color3.fromRGB(255, 110, 30), Material = Enum.Material.CrackedLava },
 			Benches = { Color = Color3.fromRGB(90, 60, 50), Material = Enum.Material.Slate },
